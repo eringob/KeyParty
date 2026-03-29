@@ -1,5 +1,4 @@
-## Interface: 120001
-## Title: Key Party
+## Interface: 120001, 120005
 ## Notes: Group Mythic+ rating and keystone recommendation helper.
 ## Author: Key Party
 ## Version: 1.0.0
