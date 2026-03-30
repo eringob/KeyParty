@@ -18,6 +18,13 @@ All notable changes to this project are documented in this file.
 - `/kp testdungeonend` to simulate end-of-dungeon refresh behavior.
 - Header banner support via `media/title-banner`.
 - New media assets: `media/title-banner` and `media/minimap-icon`.
+- Dungeon run level extraction from Blizzard Mythic+ rating summary (`bestRunLevel`) for per-dungeon key level display.
+- `YOUR SCORES` icons now show the highest completed key level per dungeon.
+- `AVAILABLE KEYSTONES` redesigned as large horizontal party keystone icons.
+- Weekly affix column with a `2x2` grid next to party keystones.
+- Weekly affix tooltips with affix name, activation level, and description.
+- End-of-dungeon chat announcement for the best progression key when at least one party member is not using the addon.
+- `/kp testbestkeyannouncement` to test that chat announcement locally while solo.
 
 ### Changed
 - Header artwork changed from separate icon/wordmark textures to one full-width banner texture with preserved aspect ratio.
@@ -27,6 +34,13 @@ All notable changes to this project are documented in this file.
 - Status text simplified to remove explicit `/kp refresh` instruction.
 - Slash command usage prompt shown to users is now limited to `/kp [refresh|report]`.
 - README usage section now distinguishes user commands and internal developer commands.
+- BEST PROGRESSION KEY now shows the key level inside the dungeon icon instead of beside the dungeon name.
+- AVAILABLE KEYSTONES now show dungeon abbreviations in icons and owner names below the icons.
+- Owner names under keystone icons are width-limited and truncated with `...` when necessary.
+- All key level overlays now use white text.
+- Weekly affix column label text removed in favor of icon-only presentation.
+- Icon borders were reduced to a thinner edge style.
+- Status text was moved lower so it no longer overlaps the BEST PROGRESSION KEY section.
 
 ### Removed
 - Manual key entry UI (`Set Key` button and popup form).

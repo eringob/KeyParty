@@ -18,6 +18,10 @@ local TITLE_BANNER_SOURCE_W = 1536
 local TITLE_BANNER_SOURCE_H = 483
 local TITLE_BAR_H = math.floor((FRAME_W * TITLE_BANNER_SOURCE_H) / TITLE_BANNER_SOURCE_W + 0.5)
 local YOUR_SCORES_ICON_COUNT = 8
+local PARTY_KEYSTONE_ICON_COUNT = 5
+local KEY_AREA_COLUMN_COUNT = 6
+local BEST_KEY_ICON_SIZE = 74
+local WEEKLY_AFFIX_LEVEL_LABELS = { "+4", "+7", "+10", "+12" }
 
 -- Raider.io-style rating colour thresholds
 local RATING_COLORS = {
@@ -221,6 +225,42 @@ local function AbbreviateDungeonName(name)
     return strupper(compact:sub(1, 4))
 end
 
+local function EllipsizeTextToWidth(fontString, text, maxWidth)
+    if not fontString then
+        return tostring(text or "")
+    end
+
+    local raw = tostring(text or "")
+    if raw == "" or not maxWidth or maxWidth <= 0 then
+        return raw
+    end
+
+    fontString:SetText(raw)
+    if (fontString:GetStringWidth() or 0) <= maxWidth then
+        return raw
+    end
+
+    local ellipsis = "..."
+    fontString:SetText(ellipsis)
+    if (fontString:GetStringWidth() or 0) > maxWidth then
+        return ""
+    end
+
+    local low, high = 0, #raw
+    while low < high do
+        local mid = math.floor((low + high + 1) / 2)
+        local candidate = raw:sub(1, mid) .. ellipsis
+        fontString:SetText(candidate)
+        if (fontString:GetStringWidth() or 0) <= maxWidth then
+            low = mid
+        else
+            high = mid - 1
+        end
+    end
+
+    return raw:sub(1, low) .. ellipsis
+end
+
 local function GetMapIcon(mapID)
     if not mapID or not C_ChallengeMode or not C_ChallengeMode.GetMapUIInfo then
         return 134400 -- INV_Misc_QuestionMark
@@ -233,6 +273,33 @@ local function GetMapIcon(mapID)
     end
 
     return 134400
+end
+
+local function GetCurrentAffixList()
+    local out = {}
+    if not (C_MythicPlus and C_MythicPlus.GetCurrentAffixes and C_ChallengeMode and C_ChallengeMode.GetAffixInfo) then
+        return out
+    end
+
+    local active = C_MythicPlus.GetCurrentAffixes() or {}
+    for _, item in ipairs(active) do
+        local candidate = item
+        if type(item) == "table" then
+            candidate = rawget(item, "id") or rawget(item, "keystoneAffixID") or rawget(item, "affixID")
+        end
+        local affixID = tonumber(candidate)
+        if affixID and affixID > 0 then
+            local name, description, icon = C_ChallengeMode.GetAffixInfo(affixID)
+            out[#out + 1] = {
+                id = affixID,
+                name = name or ("Affix " .. tostring(affixID)),
+                description = description or "",
+                icon = icon or 134400,
+            }
+        end
+    end
+
+    return out
 end
 
 local function ClearCooldownFrame(cooldown)
@@ -412,7 +479,7 @@ end
 
 local function CreateIconEdgeBorder(parent, iconTexture)
     local border = {}
-    local thickness = 2
+    local thickness = 1
 
     border.top = parent:CreateTexture(nil, "OVERLAY")
     border.top:SetColorTexture(0.45, 0.45, 0.45, 0.95)
@@ -507,7 +574,7 @@ local function BuildFrame()
     local Y_SEP1          = Y_RATING_ROWS - RATING_H - 6
     local Y_KEY_LABEL     = Y_SEP1 - 8
     local Y_KEY_ROWS      = Y_KEY_LABEL - 18
-    local KEY_H           = ROW_H * 5
+    local KEY_H           = BEST_KEY_ICON_SIZE + 28
     local Y_SEP2          = Y_KEY_ROWS - KEY_H - 6
     local Y_SCORE_LABEL   = Y_SEP2 - 8
     local Y_SCORE_ROW     = Y_SCORE_LABEL - 18
@@ -540,21 +607,126 @@ local function BuildFrame()
     -- ── AVAILABLE KEYSTONES section ───────────────────────────────────────────
     SectionLabel(f, Y_KEY_LABEL, "|cffFFD100AVAILABLE KEYSTONES|r")
 
-    f._keyRows = {}
-    for i = 1, MAX_ROWS do
-        local y = Y_KEY_ROWS - (i - 1) * ROW_H
-        local left = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        left:SetPoint("TOPLEFT", f, "TOPLEFT", COL_NAME_X, y)
-        left:SetJustifyH("LEFT")
-        left:Hide()
+    local keyArea = CreateFrame("Frame", nil, f)
+    keyArea:SetPoint("TOPLEFT", f, "TOPLEFT", 12, Y_KEY_ROWS)
+    keyArea:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, Y_KEY_ROWS)
+    keyArea:SetHeight(KEY_H)
+    f.keyArea = keyArea
 
-        local right = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        right:SetPoint("TOPLEFT", f, "TOPLEFT", COL_VALUE_X, y)
-        right:SetJustifyH("LEFT")
-        right:Hide()
+    local keyAreaEmpty = keyArea:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    keyAreaEmpty:SetPoint("CENTER", keyArea, "CENTER", 0, 0)
+    keyAreaEmpty:SetText("No party keystones shared")
+    keyAreaEmpty:SetTextColor(0.5, 0.5, 0.5, 1)
+    keyAreaEmpty:Hide()
+    f.keyAreaEmpty = keyAreaEmpty
 
-        f._keyRows[i] = { name = left, value = right }
+    f._keySlots = {}
+    for i = 1, PARTY_KEYSTONE_ICON_COUNT do
+        local slot = CreateFrame("Frame", nil, keyArea)
+        slot:SetSize(BEST_KEY_ICON_SIZE + 8, KEY_H)
+        slot:Hide()
+
+        local icon = slot:CreateTexture(nil, "ARTWORK")
+        icon:SetPoint("TOP", slot, "TOP", 0, 0)
+        icon:SetSize(BEST_KEY_ICON_SIZE, BEST_KEY_ICON_SIZE)
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        icon:SetTexture(134400)
+
+        local border = CreateIconEdgeBorder(slot, icon)
+
+        local levelText = slot:CreateFontString(nil, "OVERLAY")
+        levelText:SetDrawLayer("OVERLAY", 5)
+        levelText:SetPoint("CENTER", icon, "CENTER", 0, 0)
+        do
+            local fontPath = select(1, GameFontNormal:GetFont()) or "Fonts\\FRIZQT__.TTF"
+            levelText:SetFont(fontPath, 34, "OUTLINE")
+        end
+        levelText:SetTextColor(1, 1, 1, 1)
+        levelText:SetText("")
+
+        local abbrText = slot:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        abbrText:SetDrawLayer("OVERLAY", 6)
+        abbrText:SetPoint("TOP", icon, "TOP", 0, -4)
+        abbrText:SetTextColor(1, 1, 1, 1)
+        abbrText:SetText("")
+
+        local ownerText = slot:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        ownerText:SetPoint("TOP", icon, "BOTTOM", 0, -3)
+        ownerText:SetWidth(BEST_KEY_ICON_SIZE)
+        ownerText:SetJustifyH("CENTER")
+        ownerText:SetTextColor(0.92, 0.92, 0.95, 1)
+        ownerText:SetText("")
+
+        slot.icon = icon
+        slot.border = border
+        slot.levelText = levelText
+        slot.abbrText = abbrText
+        slot.ownerText = ownerText
+        f._keySlots[i] = slot
     end
+
+    local weeklyAffixSlot = CreateFrame("Frame", nil, keyArea)
+    weeklyAffixSlot:SetSize(BEST_KEY_ICON_SIZE + 8, KEY_H)
+    weeklyAffixSlot:Hide()
+
+    local weeklyAffixIcons = {}
+    local affixCellSize = math.floor((BEST_KEY_ICON_SIZE - 6) / 2)
+    local affixOffsets = {
+        { x = 0, y = 0 },
+        { x = affixCellSize + 2, y = 0 },
+        { x = 0, y = -(affixCellSize + 2) },
+        { x = affixCellSize + 2, y = -(affixCellSize + 2) },
+    }
+    for idx, pos in ipairs(affixOffsets) do
+        local icon = weeklyAffixSlot:CreateTexture(nil, "ARTWORK")
+        icon:SetPoint("TOPLEFT", weeklyAffixSlot, "TOPLEFT", pos.x, pos.y)
+        icon:SetSize(affixCellSize, affixCellSize)
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        icon:SetTexture(134400)
+        icon:Hide()
+
+        local border = CreateIconEdgeBorder(weeklyAffixSlot, icon)
+
+        local levelText = weeklyAffixSlot:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        levelText:SetDrawLayer("OVERLAY", 5)
+        levelText:SetPoint("CENTER", icon, "CENTER", 0, 0)
+        levelText:SetTextColor(1, 1, 1, 1)
+        levelText:SetText("")
+        levelText:Hide()
+
+        local hitbox = CreateFrame("Frame", nil, weeklyAffixSlot)
+        hitbox:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
+        hitbox:SetSize(affixCellSize, affixCellSize)
+        hitbox:EnableMouse(true)
+        hitbox:Hide()
+        hitbox:SetScript("OnEnter", function(self)
+            if not self.affixName then
+                return
+            end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(self.affixName, 1, 0.82, 0)
+            if self.affixLevel and self.affixLevel ~= "" then
+                GameTooltip:AddLine("Activated at " .. self.affixLevel, 0.85, 0.85, 1)
+            end
+            if self.affixDescription and self.affixDescription ~= "" then
+                GameTooltip:AddLine(self.affixDescription, 1, 1, 1, true)
+            end
+            GameTooltip:Show()
+        end)
+        hitbox:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+
+        weeklyAffixIcons[idx] = {
+            icon = icon,
+            border = border,
+            levelText = levelText,
+            hitbox = hitbox,
+        }
+    end
+
+    f.weeklyAffixSlot = weeklyAffixSlot
+    f.weeklyAffixIcons = weeklyAffixIcons
 
     Separator(f, Y_SEP2)
 
@@ -638,12 +810,19 @@ local function BuildFrame()
         abbrText:SetTextColor(0.85, 0.85, 0.90, 1)
         abbrText:SetText("-")
 
+        local keyLevelText = slot:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        keyLevelText:SetDrawLayer("OVERLAY", 5)
+        keyLevelText:SetPoint("TOP", icon, "TOP", 0, -3)
+        keyLevelText:SetTextColor(1, 1, 1, 1)
+        keyLevelText:SetText("")
+
         slot.icon = icon
         slot.border = border
         slot.cooldown = cooldown
         slot.scoreOutline = scoreOutline
         slot.scoreText = scoreText
         slot.abbrText = abbrText
+        slot.keyLevelText = keyLevelText
         f._scoreSlots[i] = slot
     end
 
@@ -676,13 +855,13 @@ local function BuildFrame()
     local bestBox = CreateFrame("Frame", nil, f, "BackdropTemplate")
     bestBox:SetPoint("TOPLEFT",  f, "TOPLEFT",  12, Y_BEST_BOX)
     bestBox:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, Y_BEST_BOX)
-    bestBox:SetHeight(80)
+    bestBox:SetHeight(100)
     ApplyBackdrop(bestBox, 0.05, 0.05, 0.07, 1, 0.80, 0.65, 0.00, 0.90)
 
     local bestContent = CreateFrame("Frame", nil, bestBox)
     bestContent:SetPoint("TOPLEFT", bestBox, "TOPLEFT", 12, -10)
     bestContent:SetPoint("TOPRIGHT", bestBox, "TOPRIGHT", -12, -10)
-    bestContent:SetHeight(54)
+    bestContent:SetHeight(BEST_KEY_ICON_SIZE)
 
     local bestIconButton = CreateFrame("Button", nil, bestContent, "SecureActionButtonTemplate")
     bestIconButton:SetPoint("TOPLEFT", bestContent, "TOPLEFT", 0, 0)
@@ -705,10 +884,21 @@ local function BuildFrame()
     end
     bestCooldown:Hide()
 
+    local bestKeyLevelText = bestIconButton:CreateFontString(nil, "OVERLAY")
+    bestKeyLevelText:SetDrawLayer("OVERLAY", 5)
+    bestKeyLevelText:SetPoint("CENTER", bestIcon, "CENTER", 0, 0)
+    do
+        local fontPath = select(1, GameFontNormal:GetFont()) or "Fonts\\FRIZQT__.TTF"
+        bestKeyLevelText:SetFont(fontPath, 34, "OUTLINE")
+    end
+    bestKeyLevelText:SetTextColor(1, 1, 1, 1)
+    bestKeyLevelText:SetText("")
+
     f.bestKeyIconButton = bestIconButton
     f.bestKeyIcon = bestIcon
     f.bestKeyIconBorder = bestIconBorder
     f.bestKeyCooldown = bestCooldown
+    f.bestKeyLevelText = bestKeyLevelText
 
     bestIconButton:SetScript("OnEnter", function(btn)
         GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
@@ -746,7 +936,7 @@ local function BuildFrame()
 
     -- ── Status bar ────────────────────────────────────────────────────────────
     local statusText = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    statusText:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 48)
+    statusText:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 30)
     statusText:SetTextColor(0.45, 0.45, 0.50, 1)
     statusText:SetText("No data yet. Click Refresh.")
     f.statusText = statusText
@@ -845,14 +1035,18 @@ end)
 function KL_UI:Populate(members, best)
     local f    = self.frame
     local rows = f._ratingRows
-    local keys = f._keyRows
+    local keySlots = f._keySlots
 
     -- Hide all pre-created rows
     for i = 1, MAX_ROWS do
         rows[i].name:Hide()
         rows[i].value:Hide()
-        keys[i].name:Hide()
-        keys[i].value:Hide()
+    end
+    for i = 1, PARTY_KEYSTONE_ICON_COUNT do
+        keySlots[i]:Hide()
+    end
+    if f.weeklyAffixSlot then
+        f.weeklyAffixSlot:Hide()
     end
 
     local names = {}
@@ -892,25 +1086,110 @@ function KL_UI:Populate(members, best)
         rows[i].value:Show()
     end
 
-    -- Keystone rows
-    for i, name in ipairs(names) do
-        if i > MAX_ROWS then break end
+    -- Party keystone icons (horizontal)
+    local keyedMembers = {}
+    for _, name in ipairs(names) do
         local m = members[name]
-        keys[i].name:SetText(ColoredPlayerName(name, m))
-        if m.key and m.key.level and m.key.level > 0 then
-            keys[i].value:SetText(string.format(
-                "|cff00ff96%s +%d|r",
-                GetMapName(m.key.mapID), m.key.level))
-        else
-            keys[i].value:SetText("|cff606060no key shared|r")
+        if m and m.key and m.key.level and m.key.level > 0 and m.key.mapID then
+            keyedMembers[#keyedMembers + 1] = {
+                owner = name,
+                mapID = m.key.mapID,
+                level = m.key.level,
+            }
         end
-        keys[i].name:Show()
-        keys[i].value:Show()
+    end
+
+    local slotCount = math.min(PARTY_KEYSTONE_ICON_COUNT, #keyedMembers)
+    if slotCount == 0 then
+        if f.keyAreaEmpty then
+            f.keyAreaEmpty:Show()
+        end
+    else
+        if f.keyAreaEmpty then
+            f.keyAreaEmpty:Hide()
+        end
+
+        local keyAreaWidth = (f.keyArea and f.keyArea:GetWidth()) or 0
+        if keyAreaWidth <= 0 then
+            keyAreaWidth = FRAME_W - 24
+        end
+        local slotW = keyAreaWidth / KEY_AREA_COLUMN_COUNT
+
+        for i = 1, slotCount do
+            local slot = keySlots[i]
+            local info = keyedMembers[i]
+            local ownerData = members[info.owner]
+
+            slot:ClearAllPoints()
+            slot:SetPoint("TOPLEFT", f.keyArea, "TOPLEFT", (i - 1) * slotW, 0)
+            slot:SetWidth(slotW)
+            slot.icon:SetTexture(GetMapIcon(info.mapID))
+            slot.levelText:SetText("+" .. tostring(info.level))
+            if slot.abbrText then
+                slot.abbrText:SetText(AbbreviateDungeonName(GetMapName(info.mapID)))
+            end
+            do
+                local displayName = CanonicalName(info.owner)
+                local classToken = ownerData and ownerData.classToken
+                local classColors = rawget(_G, "CUSTOM_CLASS_COLORS") or rawget(_G, "RAID_CLASS_COLORS")
+                local classColor = classToken and classColors and classColors[classToken]
+                if classColor then
+                    slot.ownerText:SetTextColor(classColor.r or 1, classColor.g or 1, classColor.b or 1, 1)
+                else
+                    slot.ownerText:SetTextColor(0.92, 0.92, 0.95, 1)
+                end
+                slot.ownerText:SetText(EllipsizeTextToWidth(slot.ownerText, displayName, BEST_KEY_ICON_SIZE))
+            end
+            slot.border:SetColor(0.45, 0.45, 0.45, 0.95)
+            slot:Show()
+        end
+    end
+
+    if f.weeklyAffixSlot and f.weeklyAffixIcons then
+        local keyAreaWidth = (f.keyArea and f.keyArea:GetWidth()) or 0
+        if keyAreaWidth <= 0 then
+            keyAreaWidth = FRAME_W - 24
+        end
+        local slotW = keyAreaWidth / KEY_AREA_COLUMN_COUNT
+        local currentAffixes = GetCurrentAffixList()
+
+        f.weeklyAffixSlot:ClearAllPoints()
+        f.weeklyAffixSlot:SetPoint("TOPLEFT", f.keyArea, "TOPLEFT", (KEY_AREA_COLUMN_COUNT - 1) * slotW, 0)
+        f.weeklyAffixSlot:SetWidth(slotW)
+        f.weeklyAffixSlot:Show()
+
+        for idx = 1, 4 do
+            local cell = f.weeklyAffixIcons[idx]
+            local affix = currentAffixes[idx]
+            if affix then
+                cell.icon:SetTexture(affix.icon)
+                cell.icon:Show()
+                cell.border:SetColor(0.45, 0.45, 0.45, 0.95)
+                cell.levelText:SetText(WEEKLY_AFFIX_LEVEL_LABELS[idx] or "")
+                cell.levelText:Show()
+                if cell.hitbox then
+                    cell.hitbox.affixName = affix.name
+                    cell.hitbox.affixDescription = affix.description
+                    cell.hitbox.affixLevel = WEEKLY_AFFIX_LEVEL_LABELS[idx] or ""
+                    cell.hitbox:Show()
+                end
+            else
+                cell.icon:Hide()
+                cell.levelText:Hide()
+                if cell.hitbox then
+                    cell.hitbox.affixName = nil
+                    cell.hitbox.affixDescription = nil
+                    cell.hitbox.affixLevel = nil
+                    cell.hitbox:Hide()
+                end
+            end
+        end
     end
 
     -- Your scores row (8 dungeons from current season list)
     local playerMember = FindPlayerMember()
     local playerScores = (playerMember and playerMember.dungeonScores) or {}
+    local playerLevels = (playerMember and playerMember.dungeonLevels) or {}
     local dungeons = GetDisplayedSeasonDungeons()
 
     for i = 1, YOUR_SCORES_ICON_COUNT do
@@ -946,9 +1225,13 @@ function KL_UI:Populate(members, best)
                 end
             end
 
+            local level = tonumber(playerLevels[dungeon.mapID]) or 0
             slot.icon:SetTexture(GetMapIcon(dungeon.mapID))
             ApplyIconScoreText(slot, score)
             slot.abbrText:SetText(AbbreviateDungeonName(dungeon.name))
+            if slot.keyLevelText then
+                slot.keyLevelText:SetText(level > 0 and ("+" .. level) or "")
+            end
         else
             slot.mapName = nil
             slot.portalSpellName = nil
@@ -962,6 +1245,9 @@ function KL_UI:Populate(members, best)
             slot.icon:SetTexture(134400)
             ApplyIconScoreText(slot, 0)
             slot.abbrText:SetText("-")
+            if slot.keyLevelText then
+                slot.keyLevelText:SetText("")
+            end
         end
     end
 
@@ -997,8 +1283,10 @@ function KL_UI:Populate(members, best)
         end
 
         f.bestKeyIcon:SetTexture(GetMapIcon(best.mapID))
-        f.bestKeyName:SetText(string.format(
-            "|cffffd100%s|r  |cff00ff96+%d|r", GetMapName(best.mapID), best.level))
+        if f.bestKeyLevelText then
+            f.bestKeyLevelText:SetText("+" .. best.level)
+        end
+        f.bestKeyName:SetText(string.format("|cffffd100%s|r", GetMapName(best.mapID)))
         local ownerData = best.owner and members[best.owner] or nil
         f.bestKeyOwner:SetText("Owner: " .. ColoredPlayerName(best.owner, ownerData))
         f.bestKeyReason:SetText(string.format(
@@ -1015,6 +1303,9 @@ function KL_UI:Populate(members, best)
         end
         f.bestKeyIconBorder:SetColor(0.45, 0.45, 0.45, 0.95)
         f.bestKeyIcon:SetTexture(134400)
+        if f.bestKeyLevelText then
+            f.bestKeyLevelText:SetText("")
+        end
         f.bestKeyName:SetText("|cff808080No keystones available|r")
         f.bestKeyOwner:SetText("")
         f.bestKeyReason:SetText(

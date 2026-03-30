@@ -5,6 +5,7 @@ Key Party is a World of Warcraft addon that helps your group by:
 - Showing Mythic+ ratings per player and per dungeon.
 - Collecting available keystones from group members (via addon communication).
 - Recommending the best keystone for progression based on group scores.
+- Showing a visual party overview with keystone icons, weekly affixes, dungeon score icons, and teleport availability.
 
 ## Why You Want This AddOn (and Your Group Does Too)
 
@@ -38,6 +39,35 @@ Main slash commands:
 - `/kp report`
   - Prints the latest cached group report.
 
+## UI Overview
+
+The main frame contains four sections:
+
+- `GROUP RATINGS`
+  - Shows the current Mythic+ rating for each visible group member.
+- `AVAILABLE KEYSTONES`
+  - Shows up to five party keystones as large dungeon icons across the width of the frame.
+  - Each icon shows:
+    - A small dungeon abbreviation at the top.
+    - The key level in the center.
+    - The keystone owner's name underneath.
+  - Owner names are truncated with `...` if they are wider than the icon.
+  - The sixth column shows the current weekly affixes in a `2x2` icon grid.
+  - Hovering a weekly affix shows a tooltip with the affix name, activation level, and description.
+- `YOUR SCORES`
+  - Shows the current season dungeons as icons.
+  - Each icon shows:
+    - Dungeon score in the center.
+    - Highest completed key level at the top.
+    - A dungeon abbreviation under the icon.
+  - If a dungeon teleport spell is mapped and known, clicking the icon casts that teleport.
+  - Teleports show cooldown overlays when active.
+- `BEST PROGRESSION KEY`
+  - Shows the recommended key as a large dungeon icon.
+  - The key level is shown inside the icon.
+  - The dungeon name, owner, and recommendation reason are shown next to it.
+  - If a teleport is available for that dungeon, the icon is clickable and shows cooldown state.
+
 When a usage/help chat prompt is shown in-game, only these user commands are listed:
 
 - `/kp [refresh|report]`
@@ -61,6 +91,8 @@ These commands remain available for development and debugging, but are not shown
   - Disables cooldown debug mode.
 - `/kp testdungeonend`
   - Simulates end-of-dungeon refresh behavior for testing.
+- `/kp testbestkeyannouncement`
+  - Forces the end-of-dungeon best-key chat announcement locally, including when solo.
 - `/kp dumpapi`
   - Prints a dump of available dungeon-score API results for debugging.
 - `/kp setportal <mapID> <spellID>`
@@ -76,6 +108,13 @@ For each available keystone in the group, the addon calculates a score:
 - Then preference for higher key level.
 
 This gives a practical recommendation for group progression.
+
+## Notes
+
+- Keystones are still shared by addon communication, so other players must run the addon for their key to appear here.
+- Weekly affixes are read from the live Blizzard Mythic+ API for the current week.
+- Dungeon score colors use Blizzard rarity color data when available, with fallback thresholds when needed.
+- After the automatic end-of-dungeon refresh, if at least one party member is not using the addon, Key Party prints the next best progression key to chat.
 
 ## License
 

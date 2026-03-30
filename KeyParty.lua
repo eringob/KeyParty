@@ -145,6 +145,29 @@ local function Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff98Key Party|r: " .. tostring(msg))
 end
 
+local function PrintBestProgressionKeyAnnouncement(best, force)
+    if not best or not best.mapID or not best.level then
+        if force then
+            Print("no progression recommendation is currently available.")
+        end
+        return
+    end
+
+    if not force and AreAllGroupMembersUsingAddon() then
+        return
+    end
+
+    local mapNameResolver = (KeyLottery and KeyLottery.GetMapName) or function(mapID)
+        return "Map " .. tostring(mapID)
+    end
+
+    Print(string.format(
+        "the next best progression key of this party is %s +%d",
+        mapNameResolver(best.mapID),
+        best.level
+    ))
+end
+
 CanonicalName = function(name)
     local n = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if n == "" then
@@ -599,6 +622,7 @@ EnsureMember = function(name)
             classToken = nil,
             totalRating = 0,
             dungeonScores = {},
+            dungeonLevels = {},
             key = nil,
         }
     end
@@ -608,31 +632,42 @@ end
 local function ParseRatingSummary(summary)
     local totalRating = 0
     local scores = {}
+    local levels = {}
 
     if not summary then
-        return totalRating, scores
+        return totalRating, scores, levels
     end
 
     -- Confirmed field names from API dump (TWW / patch 11.x):
-    --   summary.currentSeasonScore  -> total rating
+    --   summary.currentSeasonScore    -> total rating
     --   summary.runs[i].challengeModeID -> dungeon ID
     --   summary.runs[i].mapScore        -> dungeon score
+    --   summary.runs[i].bestRunLevel    -> highest key level completed
     totalRating = tonumber(summary.currentSeasonScore) or 0
 
     if type(summary.runs) == "table" then
         for _, run in ipairs(summary.runs) do
             local mapID = tonumber(run.challengeModeID)
             local score = tonumber(run.mapScore)
-            if mapID and mapID > 0 and score and score > 0 then
-                local prev = scores[mapID] or 0
-                if score > prev then
-                    scores[mapID] = score
+            local level = tonumber(run.bestRunLevel) or 0
+            if mapID and mapID > 0 then
+                if score and score > 0 then
+                    local prev = scores[mapID] or 0
+                    if score > prev then
+                        scores[mapID] = score
+                    end
+                end
+                if level > 0 then
+                    local prevLevel = levels[mapID] or 0
+                    if level > prevLevel then
+                        levels[mapID] = level
+                    end
                 end
             end
         end
     end
 
-    return totalRating, scores
+    return totalRating, scores, levels
 end
 
 local function ParseRaiderIOProfile(profile)
@@ -816,14 +851,15 @@ local function HandleInspectReady(guid)
 
     local totalRating = 0
     local dungeonScores = {}
+    local dungeonLevels = {}
 
     if meta.unit and UnitExists(meta.unit) then
-        totalRating, dungeonScores = ReadUnitRating(meta.unit)
+        totalRating, dungeonScores, dungeonLevels = ReadUnitRating(meta.unit)
     end
 
     if totalRating <= 0 then
         local summaryByName = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(meta.name)
-        totalRating, dungeonScores = ParseRatingSummary(summaryByName)
+        totalRating, dungeonScores, dungeonLevels = ParseRatingSummary(summaryByName)
     end
 
     if totalRating <= 0 then
@@ -840,6 +876,9 @@ local function HandleInspectReady(guid)
     end
     if next(dungeonScores) then
         member.dungeonScores = dungeonScores
+    end
+    if next(dungeonLevels) then
+        member.dungeonLevels = dungeonLevels
     end
 
     inspectQueuedByGUID[guid] = nil
@@ -1002,9 +1041,10 @@ local function SnapshotGroupRatings()
             if classToken and classToken ~= "" then
                 member.classToken = classToken
             end
-            local totalRating, dungeonScores = ReadUnitRating(unit)
+            local totalRating, dungeonScores, dungeonLevels = ReadUnitRating(unit)
             member.totalRating = totalRating
             member.dungeonScores = dungeonScores or {}
+            member.dungeonLevels = dungeonLevels or {}
 
             if totalRating <= 0 then
                 local rioRating, rioKey = TryReadRaiderIOForUnit(unit)
@@ -1066,8 +1106,16 @@ end
 local function RefreshAndReport(options)
     local passive = (type(options) == "table" and options.passive) and true or false
     local propagateGroupRefresh = true
+    local announceBestProgressionKey = false
+    local forceBestProgressionKeyAnnouncement = false
     if type(options) == "table" and options.propagateGroupRefresh == false then
         propagateGroupRefresh = false
+    end
+    if type(options) == "table" and options.announceBestProgressionKey == true then
+        announceBestProgressionKey = true
+    end
+    if type(options) == "table" and options.forceBestProgressionKeyAnnouncement == true then
+        forceBestProgressionKeyAnnouncement = true
     end
 
     SnapshotLocalState()
@@ -1110,6 +1158,9 @@ local function RefreshAndReport(options)
         elseif not passive then
             PrintRatingsReport()
         end
+        if announceBestProgressionKey or forceBestProgressionKeyAnnouncement then
+            PrintBestProgressionKeyAnnouncement(best, forceBestProgressionKeyAnnouncement)
+        end
         KeyLottery.lastReportTime = GetServerTime()
     end)
 end
@@ -1146,7 +1197,11 @@ local function SchedulePostDungeonAutoRefresh()
 
     C_Timer.After(14.0, function()
         if serial == postDungeonRefreshSerial then
-            RefreshAndReport(refreshOptions)
+            local finalOptions = {
+                passive = refreshOptions.passive,
+                announceBestProgressionKey = true,
+            }
+            RefreshAndReport(finalOptions)
         end
     end)
 end
@@ -1158,6 +1213,15 @@ local function TestDungeonEndBehavior()
         shouldAutoOpen and "ON" or "OFF"
     ))
     RefreshAndReport({ passive = not shouldAutoOpen })
+end
+
+local function TestBestProgressionKeyAnnouncementSolo()
+    Print("Testing best progression key announcement.")
+    RefreshAndReport({
+        passive = true,
+        forceBestProgressionKeyAnnouncement = true,
+        propagateGroupRefresh = false,
+    })
 end
 
 local function CountEntries(tbl)
@@ -1383,6 +1447,11 @@ local function HandleSlash(msg)
 
     if cmd == "testdungeonend" then
         TestDungeonEndBehavior()
+        return
+    end
+
+    if cmd == "testbestkeyannouncement" then
+        TestBestProgressionKeyAnnouncementSolo()
         return
     end
 
