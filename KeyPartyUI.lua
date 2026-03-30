@@ -7,17 +7,17 @@ _G.KL_UI = KL_UI
 -- ── Constants ─────────────────────────────────────────────────────────────────
 
 local FRAME_W   = 620
-local FRAME_H   = 450
+local FRAME_H   = 740
 local ROW_H     = 18     -- pixels per member row
 local MAX_ROWS  = 25     -- pool size per section (handles raids)
 local COL_NAME_X  = 14
 local COL_VALUE_X = 400
-local TITLE_ICON_PATH = "Interface\\AddOns\\KeyParty\\media\\title-icon"
-local TITLE_WORDMARK_PATH = "Interface\\AddOns\\KeyParty\\media\\title-wordmark"
+local TITLE_BANNER_PATH = "Interface\\AddOns\\KeyParty\\media\\title-banner"
 local TITLE_ICON_FALLBACK = 134419
-local TITLE_BAR_H = 110
-local TITLE_ICON_SIZE = 100
-local TITLE_WORDMARK_SIZE = 100
+local TITLE_BANNER_SOURCE_W = 1536
+local TITLE_BANNER_SOURCE_H = 483
+local TITLE_BAR_H = math.floor((FRAME_W * TITLE_BANNER_SOURCE_H) / TITLE_BANNER_SOURCE_W + 0.5)
+local YOUR_SCORES_ICON_COUNT = 8
 
 -- Raider.io-style rating colour thresholds
 local RATING_COLORS = {
@@ -45,6 +45,126 @@ local function ColoredRating(rating)
         math.floor(rating or 0))
 end
 
+local function InstanceScoreColor(score)
+    local value = tonumber(score) or 0
+    if value <= 0 then
+        return 0.85, 0.85, 0.85, "zero-score"
+    end
+
+    local function NormalizeRGB(r, g, b)
+        if not r or not g or not b then
+            return nil
+        end
+        if r > 1 or g > 1 or b > 1 then
+            return r / 255, g / 255, b / 255
+        end
+        return r, g, b
+    end
+
+    local function IsPureWhite(r, g, b)
+        return r and g and b and r >= 0.999 and g >= 0.999 and b >= 0.999
+    end
+
+    local function ExtractColorFromApiResult(result1, result2, result3)
+        local r, g, b = NormalizeRGB(result1, result2, result3)
+        if r and g and b then
+            return r, g, b
+        end
+
+        if type(result1) == "table" then
+            local c = result1
+            if c.GetRGB then
+                r, g, b = NormalizeRGB(c:GetRGB())
+                if r and g and b then
+                    return r, g, b
+                end
+            end
+
+            r, g, b = NormalizeRGB(c.r, c.g, c.b)
+            if r and g and b then
+                return r, g, b
+            end
+
+            r, g, b = NormalizeRGB(rawget(c, "red"), rawget(c, "green"), rawget(c, "blue"))
+            if r and g and b then
+                return r, g, b
+            end
+
+            local colorObj = rawget(c, "color")
+            if type(colorObj) == "table" then
+                r, g, b = NormalizeRGB(rawget(colorObj, "r"), rawget(colorObj, "g"), rawget(colorObj, "b"))
+                if r and g and b then
+                    return r, g, b
+                end
+            end
+        end
+
+        return nil
+    end
+
+    if C_ChallengeMode then
+        local candidates = {
+            "GetSpecificDungeonOverallScoreRarityColor",
+            "GetSpecificDungeonScoreRarityColor",
+            "GetDungeonScoreRarityColor",
+        }
+
+        local whiteFallback = nil
+        for _, fnName in ipairs(candidates) do
+            local fn = C_ChallengeMode[fnName]
+            if type(fn) == "function" then
+                local a, b, c = fn(value)
+                local r, g, bl = ExtractColorFromApiResult(a, b, c)
+                if r and g and bl then
+                    if not IsPureWhite(r, g, bl) then
+                        return r, g, bl, fnName
+                    end
+                    whiteFallback = { r = r, g = g, b = bl }
+                end
+            end
+        end
+
+        if whiteFallback then
+            return whiteFallback.r, whiteFallback.g, whiteFallback.b, "white-api-fallback"
+        end
+    end
+
+    local r, g, b = RatingColor(math.floor(value))
+    return r, g, b, "local-threshold-fallback"
+end
+
+local function ApplyIconScoreText(slot, score)
+    if not slot or not slot.scoreText then
+        return
+    end
+
+    local value = tonumber(score) or 0
+    local label = "-"
+    if value > 0 then
+        label = string.format("%.0f", value)
+    end
+
+    if slot.scoreOutline then
+        for _, outline in ipairs(slot.scoreOutline) do
+            outline:SetText(label)
+        end
+    end
+
+    slot.scoreText:SetText(label)
+    if value > 0 then
+        local r, g, b, source = InstanceScoreColor(value)
+        slot.lastScoreValue = value
+        slot.lastScoreColor = { r = r, g = g, b = b }
+        slot.lastScoreColorSource = source or "unknown"
+        slot.scoreText:SetTextColor(r, g, b, 1)
+    else
+        slot.lastScoreValue = 0
+        slot.lastScoreColor = { r = 0.85, g = 0.85, b = 0.85 }
+        slot.lastScoreColorSource = "zero-score"
+        slot.scoreText:SetTextColor(0.85, 0.85, 0.85, 1)
+    end
+end
+
 local function ColoredPlayerName(name, member)
     local classToken = member and member.classToken
     local classColors = rawget(_G, "CUSTOM_CLASS_COLORS") or rawget(_G, "RAID_CLASS_COLORS")
@@ -56,6 +176,49 @@ local function ColoredPlayerName(name, member)
         return string.format("|cff%02x%02x%02x%s|r", r, g, b, tostring(name or "Unknown"))
     end
     return tostring(name or "Unknown")
+end
+
+local function CanonicalName(name)
+    local n = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if n == "" then
+        return "Unknown"
+    end
+    return Ambiguate(n, "short")
+end
+
+local function AbbreviateDungeonName(name)
+    local text = tostring(name or "")
+    if text == "" then
+        return "N/A"
+    end
+
+    local stopWords = {
+        ["the"] = true,
+        ["of"] = true,
+        ["and"] = true,
+        ["to"] = true,
+        ["in"] = true,
+        ["a"] = true,
+        ["an"] = true,
+    }
+
+    local letters = {}
+    for word in text:gmatch("[%a%d']+") do
+        local lower = strlower(word)
+        if not stopWords[lower] then
+            letters[#letters + 1] = strupper(word:sub(1, 1))
+        end
+    end
+
+    if #letters >= 2 then
+        return table.concat(letters, "", 1, math.min(4, #letters))
+    end
+
+    local compact = text:gsub("[^%a%d]", "")
+    if compact == "" then
+        return "N/A"
+    end
+    return strupper(compact:sub(1, 4))
 end
 
 local function GetMapIcon(mapID)
@@ -70,6 +233,82 @@ local function GetMapIcon(mapID)
     end
 
     return 134400
+end
+
+local function ClearCooldownFrame(cooldown)
+    if not cooldown then
+        return
+    end
+    if CooldownFrame_Clear then
+        CooldownFrame_Clear(cooldown)
+    elseif cooldown.Clear then
+        cooldown:Clear()
+    else
+        cooldown:SetCooldown(0, 0, 1)
+    end
+    cooldown:Hide()
+end
+
+local function GetSpellCooldownData(spellID)
+    if not spellID then
+        return 0, 0, 0, 1
+    end
+
+    if C_Spell and C_Spell.GetSpellCooldown then
+        local info = C_Spell.GetSpellCooldown(spellID)
+        if type(info) == "table" then
+            return tonumber(info.startTime) or 0,
+                   tonumber(info.duration) or 0,
+                   tonumber(info.isEnabled) or 0,
+                   tonumber(info.modRate) or 1
+        end
+
+        local s, d, e, m = C_Spell.GetSpellCooldown(spellID)
+        if s ~= nil then
+            return tonumber(s) or 0,
+                   tonumber(d) or 0,
+                   tonumber(e) or 0,
+                   tonumber(m) or 1
+        end
+    end
+
+    ---@diagnostic disable-next-line: deprecated
+    local s, d, e, m = GetSpellCooldown(spellID)
+    return tonumber(s) or 0,
+           tonumber(d) or 0,
+           tonumber(e) or 0,
+           tonumber(m) or 1
+end
+
+local function ApplySpellCooldown(cooldown, spellID, debugEndTime, debugDuration)
+    if not cooldown then
+        return
+    end
+
+    if debugEndTime and debugEndTime > GetTime() then
+        local total = tonumber(debugDuration) or (debugEndTime - GetTime())
+        if not total or total <= 0 then
+            total = 30
+        end
+        local start = debugEndTime - total
+        cooldown:Show()
+        cooldown:SetCooldown(start, total, 1)
+        return
+    end
+
+    if not spellID then
+        ClearCooldownFrame(cooldown)
+        return
+    end
+
+    local startTime, duration, isEnabled, modRate = GetSpellCooldownData(spellID)
+    if isEnabled == 0 or startTime <= 0 or duration <= 1.5 then
+        ClearCooldownFrame(cooldown)
+        return
+    end
+
+    cooldown:Show()
+    cooldown:SetCooldown(startTime, duration, modRate or 1)
 end
 
 local function GetGroupPlayerNames()
@@ -127,10 +366,24 @@ local function GetSeasonDungeons()
     end
 
     table.sort(result, function(a, b)
-        return a.name < b.name
+        local an = strlower(a.name or "")
+        local bn = strlower(b.name or "")
+        if an == bn then
+            return (a.name or "") < (b.name or "")
+        end
+        return an < bn
     end)
 
     return result
+end
+
+local function GetDisplayedSeasonDungeons()
+    local dungeons = GetSeasonDungeons()
+    local out = {}
+    for i = 1, math.min(YOUR_SCORES_ICON_COUNT, #dungeons) do
+        out[#out + 1] = dungeons[i]
+    end
+    return out
 end
 
 -- ── Frame builder helpers ─────────────────────────────────────────────────────
@@ -155,6 +408,44 @@ local function Separator(parent, yOffset)
     t:SetHeight(1)
     t:SetColorTexture(0.28, 0.28, 0.36, 0.80)
     return t
+end
+
+local function CreateIconEdgeBorder(parent, iconTexture)
+    local border = {}
+    local thickness = 2
+
+    border.top = parent:CreateTexture(nil, "OVERLAY")
+    border.top:SetColorTexture(0.45, 0.45, 0.45, 0.95)
+    border.top:SetPoint("TOPLEFT", iconTexture, "TOPLEFT", -1, 1)
+    border.top:SetPoint("TOPRIGHT", iconTexture, "TOPRIGHT", 1, 1)
+    border.top:SetHeight(thickness)
+
+    border.bottom = parent:CreateTexture(nil, "OVERLAY")
+    border.bottom:SetColorTexture(0.45, 0.45, 0.45, 0.95)
+    border.bottom:SetPoint("BOTTOMLEFT", iconTexture, "BOTTOMLEFT", -1, -1)
+    border.bottom:SetPoint("BOTTOMRIGHT", iconTexture, "BOTTOMRIGHT", 1, -1)
+    border.bottom:SetHeight(thickness)
+
+    border.left = parent:CreateTexture(nil, "OVERLAY")
+    border.left:SetColorTexture(0.45, 0.45, 0.45, 0.95)
+    border.left:SetPoint("TOPLEFT", iconTexture, "TOPLEFT", -1, 1)
+    border.left:SetPoint("BOTTOMLEFT", iconTexture, "BOTTOMLEFT", -1, -1)
+    border.left:SetWidth(thickness)
+
+    border.right = parent:CreateTexture(nil, "OVERLAY")
+    border.right:SetColorTexture(0.45, 0.45, 0.45, 0.95)
+    border.right:SetPoint("TOPRIGHT", iconTexture, "TOPRIGHT", 1, 1)
+    border.right:SetPoint("BOTTOMRIGHT", iconTexture, "BOTTOMRIGHT", 1, -1)
+    border.right:SetWidth(thickness)
+
+    function border:SetColor(r, g, b, a)
+        self.top:SetColorTexture(r, g, b, a)
+        self.bottom:SetColorTexture(r, g, b, a)
+        self.left:SetColorTexture(r, g, b, a)
+        self.right:SetColorTexture(r, g, b, a)
+    end
+
+    return border
 end
 
 local function SectionLabel(parent, yOffset, text)
@@ -186,21 +477,12 @@ local function BuildFrame()
     titleBar:SetHeight(TITLE_BAR_H)
     ApplyBackdrop(titleBar, 0.04, 0.04, 0.06, 1, 0.38, 0.38, 0.48, 1)
 
-    local titleIcon = titleBar:CreateTexture(nil, "ARTWORK")
-    titleIcon:SetSize(TITLE_ICON_SIZE, TITLE_ICON_SIZE)
-    titleIcon:SetPoint("LEFT", titleBar, "LEFT", 8, 0)
-    titleIcon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
-    titleIcon:SetTexture(TITLE_ICON_FALLBACK)
-    titleIcon:SetTexture(TITLE_ICON_PATH)
-    f.titleIcon = titleIcon
-
-    local titleWordmark = titleBar:CreateTexture(nil, "ARTWORK")
-    titleWordmark:SetSize(TITLE_WORDMARK_SIZE, TITLE_WORDMARK_SIZE)
-    titleWordmark:SetPoint("LEFT", titleIcon, "RIGHT", 8, 0)
-    titleWordmark:SetTexCoord(0.02, 0.98, 0.02, 0.98)
-    titleWordmark:SetTexture(TITLE_ICON_FALLBACK)
-    titleWordmark:SetTexture(TITLE_WORDMARK_PATH)
-    f.titleWordmark = titleWordmark
+    local titleBanner = titleBar:CreateTexture(nil, "ARTWORK")
+    titleBanner:SetAllPoints(titleBar)
+    titleBanner:SetTexCoord(0, 1, 0, 1)
+    titleBanner:SetTexture(TITLE_ICON_FALLBACK)
+    titleBanner:SetTexture(TITLE_BANNER_PATH)
+    f.titleBanner = titleBanner
 
     -- Close button
     local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
@@ -216,10 +498,6 @@ local function BuildFrame()
         if KL_UI.OnRefresh then KL_UI.OnRefresh() end
     end)
 
-    local setKeyBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    setKeyBtn:SetSize(80, 22)
-    setKeyBtn:SetPoint("RIGHT", refreshBtn, "LEFT", -6, 0)
-    setKeyBtn:SetText("Set Key")
 
     -- ── Layout anchors ────────────────────────────────────────────────────────
     -- Section yOffsets from top of f (all negative)
@@ -231,7 +509,11 @@ local function BuildFrame()
     local Y_KEY_ROWS      = Y_KEY_LABEL - 18
     local KEY_H           = ROW_H * 5
     local Y_SEP2          = Y_KEY_ROWS - KEY_H - 6
-    local Y_BEST_LABEL    = Y_SEP2 - 8
+    local Y_SCORE_LABEL   = Y_SEP2 - 8
+    local Y_SCORE_ROW     = Y_SCORE_LABEL - 18
+    local SCORE_H         = 84
+    local Y_SEP3          = Y_SCORE_ROW - SCORE_H - 6
+    local Y_BEST_LABEL    = Y_SEP3 - 8
     local Y_BEST_BOX      = Y_BEST_LABEL - 18
 
     -- ── GROUP RATINGS section ─────────────────────────────────────────────────
@@ -276,6 +558,118 @@ local function BuildFrame()
 
     Separator(f, Y_SEP2)
 
+    -- ── YOUR SCORES section ───────────────────────────────────────────────────
+    SectionLabel(f, Y_SCORE_LABEL, "|cffFFD100YOUR SCORES|r")
+
+    local scoreArea = CreateFrame("Frame", nil, f)
+    scoreArea:SetPoint("TOPLEFT", f, "TOPLEFT", 12, Y_SCORE_ROW)
+    scoreArea:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, Y_SCORE_ROW)
+    scoreArea:SetHeight(SCORE_H)
+    f.scoreArea = scoreArea
+
+    f._scoreSlots = {}
+    for i = 1, YOUR_SCORES_ICON_COUNT do
+        local slot = CreateFrame("Button", nil, scoreArea, "SecureActionButtonTemplate")
+        slot:SetHeight(SCORE_H)
+        slot:EnableMouse(true)
+
+        local icon = slot:CreateTexture(nil, "ARTWORK")
+        icon:SetPoint("TOP", slot, "TOP", 0, 0)
+        icon:SetSize(52, 52)
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        icon:SetTexture(134400)
+
+        local border = CreateIconEdgeBorder(slot, icon)
+
+        local cooldown = CreateFrame("Cooldown", nil, slot, "CooldownFrameTemplate")
+        cooldown:SetAllPoints(icon)
+        cooldown:SetFrameLevel(slot:GetFrameLevel() + 30)
+        cooldown:SetDrawSwipe(true)
+        cooldown:SetDrawEdge(true)
+        if cooldown.SetHideCountdownNumbers then
+            cooldown:SetHideCountdownNumbers(false)
+        end
+        cooldown:Hide()
+
+        slot:SetScript("OnEnter", function(btn)
+            GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+            GameTooltip:AddLine("Your Dungeon Score", 1, 0.82, 0)
+            if btn.mapName then
+                GameTooltip:AddLine(btn.mapName, 1, 1, 1)
+            end
+            if btn.portalSpellName then
+                GameTooltip:AddLine("Click to teleport", 0.2, 1, 0.2)
+                GameTooltip:AddLine(btn.portalSpellName, 0.8, 0.8, 1)
+            else
+                GameTooltip:AddLine("No teleport available", 1, 0.2, 0.2)
+            end
+            GameTooltip:Show()
+        end)
+
+        slot:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+
+        local scoreOutline = {}
+        local outlineOffsets = {
+            { x = -1, y = 0 },
+            { x = 1, y = 0 },
+            { x = 0, y = -1 },
+            { x = 0, y = 1 },
+        }
+        for _, o in ipairs(outlineOffsets) do
+            local fs = slot:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            fs:SetDrawLayer("OVERLAY", 1)
+            fs:SetPoint("CENTER", icon, "CENTER", o.x, o.y)
+            fs:SetText("-")
+            fs:SetTextColor(0, 0, 0, 0.95)
+            scoreOutline[#scoreOutline + 1] = fs
+        end
+
+        local scoreText = slot:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        scoreText:SetDrawLayer("OVERLAY", 5)
+        scoreText:SetPoint("CENTER", icon, "CENTER", 0, 0)
+        scoreText:SetText("-")
+        scoreText:SetShadowColor(0, 0, 0, 0)
+        scoreText:SetShadowOffset(0, 0)
+
+        local abbrText = slot:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        abbrText:SetPoint("TOP", icon, "BOTTOM", 0, -3)
+        abbrText:SetTextColor(0.85, 0.85, 0.90, 1)
+        abbrText:SetText("-")
+
+        slot.icon = icon
+        slot.border = border
+        slot.cooldown = cooldown
+        slot.scoreOutline = scoreOutline
+        slot.scoreText = scoreText
+        slot.abbrText = abbrText
+        f._scoreSlots[i] = slot
+    end
+
+    f:SetScript("OnSizeChanged", function(frame)
+        if not frame._scoreSlots or not frame.scoreArea then
+            return
+        end
+        local width = frame.scoreArea:GetWidth() or 0
+        if width <= 0 then
+            return
+        end
+
+        local slotW = width / YOUR_SCORES_ICON_COUNT
+        local iconSize = math.floor(math.min(54, math.max(40, slotW - 10)))
+
+        for i = 1, YOUR_SCORES_ICON_COUNT do
+            local slot = frame._scoreSlots[i]
+            slot:ClearAllPoints()
+            slot:SetPoint("TOPLEFT", frame.scoreArea, "TOPLEFT", (i - 1) * slotW, 0)
+            slot:SetWidth(slotW)
+            slot.icon:SetSize(iconSize, iconSize)
+        end
+    end)
+
+    Separator(f, Y_SEP3)
+
     -- ── BEST PROGRESSION KEY section ──────────────────────────────────────────
     SectionLabel(f, Y_BEST_LABEL, "|cffFFD100BEST PROGRESSION KEY|r")
 
@@ -298,8 +692,23 @@ local function BuildFrame()
     bestIcon:SetAllPoints()
     bestIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     bestIcon:SetTexture(134400)
+
+    local bestIconBorder = CreateIconEdgeBorder(bestIconButton, bestIcon)
+
+    local bestCooldown = CreateFrame("Cooldown", nil, bestIconButton, "CooldownFrameTemplate")
+    bestCooldown:SetAllPoints(bestIcon)
+    bestCooldown:SetFrameLevel(bestIconButton:GetFrameLevel() + 30)
+    bestCooldown:SetDrawSwipe(true)
+    bestCooldown:SetDrawEdge(true)
+    if bestCooldown.SetHideCountdownNumbers then
+        bestCooldown:SetHideCountdownNumbers(false)
+    end
+    bestCooldown:Hide()
+
     f.bestKeyIconButton = bestIconButton
     f.bestKeyIcon = bestIcon
+    f.bestKeyIconBorder = bestIconBorder
+    f.bestKeyCooldown = bestCooldown
 
     bestIconButton:SetScript("OnEnter", function(btn)
         GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
@@ -312,7 +721,6 @@ local function BuildFrame()
             GameTooltip:AddLine(btn.portalSpellName, 0.8, 0.8, 1)
         else
             GameTooltip:AddLine("No teleport available", 1, 0.2, 0.2)
-            GameTooltip:AddLine("Tip: /kp setportal <mapID> <spellID>", 0.8, 0.8, 0.8)
         end
         GameTooltip:Show()
     end)
@@ -338,188 +746,99 @@ local function BuildFrame()
 
     -- ── Status bar ────────────────────────────────────────────────────────────
     local statusText = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    statusText:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 8)
+    statusText:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 48)
     statusText:SetTextColor(0.45, 0.45, 0.50, 1)
-    statusText:SetText("No data yet. Click Refresh or use /kp refresh.")
+    statusText:SetText("No data yet. Click Refresh.")
     f.statusText = statusText
 
-    -- ── Manual Set Key popup ─────────────────────────────────────────────────
-    local popup = CreateFrame("Frame", nil, f, "BackdropTemplate")
-    popup:SetSize(390, 180)
-    popup:SetPoint("CENTER", f, "CENTER", 0, 0)
-    popup:SetFrameStrata("FULLSCREEN_DIALOG")
-    popup:Hide()
-    ApplyBackdrop(popup, 0.06, 0.06, 0.09, 0.98, 0.55, 0.55, 0.65, 1)
+    local autoOpenCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+    autoOpenCheck:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 2)
+    autoOpenCheck:SetScale(0.82)
+    autoOpenCheck:SetChecked(false)
 
-    local popupTitle = popup:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    popupTitle:SetPoint("TOPLEFT", popup, "TOPLEFT", 12, -10)
-    popupTitle:SetText("Manual Key Entry")
+    local autoOpenLabel = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    autoOpenLabel:SetPoint("LEFT", autoOpenCheck, "RIGHT", -1, 0)
+    autoOpenLabel:SetText("Auto open at the end of a dungeon")
+    autoOpenLabel:SetTextColor(0.78, 0.78, 0.82, 1)
 
-    local function MakeLabel(y, text)
-        local fs = popup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        fs:SetPoint("TOPLEFT", popup, "TOPLEFT", 12, y)
-        fs:SetText(text)
-        return fs
-    end
-
-    local function MakeInput(y)
-        local eb = CreateFrame("EditBox", nil, popup, "InputBoxTemplate")
-        eb:SetSize(245, 20)
-        eb:SetPoint("TOPLEFT", popup, "TOPLEFT", 130, y)
-        eb:SetAutoFocus(false)
-        return eb
-    end
-
-    local function MakeDropdown(y)
-        local dd = CreateFrame("Frame", nil, popup, "UIDropDownMenuTemplate")
-        dd:SetPoint("TOPLEFT", popup, "TOPLEFT", 114, y)
-        UIDropDownMenu_SetWidth(dd, 240)
-        UIDropDownMenu_SetText(dd, "Select")
-        return dd
-    end
-
-    MakeLabel(-42, "Player")
-    MakeLabel(-70, "Dungeon")
-    MakeLabel(-98, "Level")
-
-    local playerDropdown = MakeDropdown(-33)
-    local dungeonDropdown = MakeDropdown(-61)
-    local levelInput = MakeInput(-94)
-    f.manualPlayerDropdown = playerDropdown
-    f.manualDungeonDropdown = dungeonDropdown
-    f.manualLevelInput = levelInput
-
-    local selectedPlayer = nil
-    local selectedDungeonID = nil
-
-    local function RefreshPlayerDropdown()
-        local players = GetGroupPlayerNames()
-
-        UIDropDownMenu_Initialize(playerDropdown, function(self, level)
-            if level ~= 1 then
-                return
-            end
-            for _, name in ipairs(players) do
-                local info = UIDropDownMenu_CreateInfo()
-                info.text = name
-                info.func = function()
-                    selectedPlayer = name
-                    UIDropDownMenu_SetSelectedName(playerDropdown, name)
-                    UIDropDownMenu_SetText(playerDropdown, name)
-                end
-                info.checked = (selectedPlayer == name)
-                UIDropDownMenu_AddButton(info, level)
-            end
-        end)
-
-        if (not selectedPlayer or selectedPlayer == "") and #players > 0 then
-            selectedPlayer = players[1]
-        end
-
-        if selectedPlayer then
-            UIDropDownMenu_SetText(playerDropdown, selectedPlayer)
-            UIDropDownMenu_SetSelectedName(playerDropdown, selectedPlayer)
-        else
-            UIDropDownMenu_SetText(playerDropdown, "No players")
-        end
-    end
-
-    local function RefreshDungeonDropdown()
-        local dungeons = GetSeasonDungeons()
-
-        UIDropDownMenu_Initialize(dungeonDropdown, function(self, level)
-            if level ~= 1 then
-                return
-            end
-            for _, dungeon in ipairs(dungeons) do
-                local info = UIDropDownMenu_CreateInfo()
-                info.text = dungeon.name
-                info.func = function()
-                    selectedDungeonID = dungeon.mapID
-                    UIDropDownMenu_SetSelectedValue(dungeonDropdown, dungeon.mapID)
-                    UIDropDownMenu_SetText(dungeonDropdown, dungeon.name)
-                end
-                info.checked = (selectedDungeonID == dungeon.mapID)
-                UIDropDownMenu_AddButton(info, level)
-            end
-        end)
-
-        if (not selectedDungeonID) and #dungeons > 0 then
-            selectedDungeonID = dungeons[1].mapID
-        end
-
-        if selectedDungeonID then
-            local selectedName = nil
-            for _, dungeon in ipairs(dungeons) do
-                if dungeon.mapID == selectedDungeonID then
-                    selectedName = dungeon.name
-                    break
-                end
-            end
-            if selectedName then
-                UIDropDownMenu_SetSelectedValue(dungeonDropdown, selectedDungeonID)
-                UIDropDownMenu_SetText(dungeonDropdown, selectedName)
-            else
-                UIDropDownMenu_SetText(dungeonDropdown, "Select dungeon")
-            end
-        else
-            UIDropDownMenu_SetText(dungeonDropdown, "No dungeons")
-        end
-    end
-
-    local hint = popup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hint:SetPoint("TOPLEFT", popup, "TOPLEFT", 12, -122)
-    hint:SetText("Map can be ID or exact dungeon name")
-    hint:SetTextColor(0.7, 0.7, 0.75)
-
-    local saveBtn = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
-    saveBtn:SetSize(84, 22)
-    saveBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -12, 10)
-    saveBtn:SetText("Save")
-
-    local cancelBtn = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
-    cancelBtn:SetSize(84, 22)
-    cancelBtn:SetPoint("RIGHT", saveBtn, "LEFT", -6, 0)
-    cancelBtn:SetText("Cancel")
-
-    cancelBtn:SetScript("OnClick", function()
-        popup:Hide()
-    end)
-
-    saveBtn:SetScript("OnClick", function()
-        if not KL_UI.OnManualSetKey then
-            f.statusText:SetText("Manual key handler is not available.")
-            return
-        end
-
-        if not selectedPlayer or not selectedDungeonID then
-            f.statusText:SetText("Select player and dungeon first.")
-            return
-        end
-
-        local ok = KL_UI.OnManualSetKey(
-            selectedPlayer,
-            selectedDungeonID,
-            levelInput:GetText()
-        )
-        if ok then
-            popup:Hide()
-            levelInput:SetText("")
+    autoOpenCheck:SetScript("OnClick", function(btn)
+        if KL_UI.OnToggleAutoOpenAtDungeonEnd then
+            KL_UI.OnToggleAutoOpenAtDungeonEnd(btn:GetChecked() == true)
         end
     end)
 
-    setKeyBtn:SetScript("OnClick", function()
-        RefreshPlayerDropdown()
-        RefreshDungeonDropdown()
-        popup:Show()
-        levelInput:SetFocus()
-    end)
+    f.autoOpenAtDungeonEndCheck = autoOpenCheck
+    f.autoOpenAtDungeonEndLabel = autoOpenLabel
 
     return f
 end
 
 local mainFrame = BuildFrame()
 KL_UI.frame = mainFrame
+
+function KL_UI:RefreshCooldownIndicators()
+    local f = self.frame
+    if not f then
+        return
+    end
+
+    local debugEndTime = nil
+    local debugDuration = nil
+    if self.debugCooldownEndTime and self.debugCooldownEndTime > GetTime() then
+        debugEndTime = self.debugCooldownEndTime
+        debugDuration = self.debugCooldownDuration
+    end
+
+    if f._scoreSlots then
+        for _, slot in ipairs(f._scoreSlots) do
+            ApplySpellCooldown(slot.cooldown, slot.teleportSpellID, debugEndTime, debugDuration)
+        end
+    end
+
+    ApplySpellCooldown(f.bestKeyCooldown, f.bestKeyTeleportSpellID, debugEndTime, debugDuration)
+end
+
+function KL_UI:SetDebugCooldown(seconds)
+    local sec = tonumber(seconds)
+    if sec and sec > 0 then
+        sec = math.floor(sec)
+        self.debugCooldownDuration = sec
+        self.debugCooldownEndTime = GetTime() + sec
+    else
+        self.debugCooldownDuration = nil
+        self.debugCooldownEndTime = nil
+    end
+
+    self:RefreshCooldownIndicators()
+end
+
+function KL_UI:StartCooldownTicker()
+    if self._cooldownTicker then
+        return
+    end
+
+    self._cooldownTicker = C_Timer.NewTicker(0.15, function()
+        if self.frame and self.frame:IsShown() then
+            self:RefreshCooldownIndicators()
+        end
+    end)
+end
+
+function KL_UI:StopCooldownTicker()
+    if self._cooldownTicker then
+        self._cooldownTicker:Cancel()
+        self._cooldownTicker = nil
+    end
+end
+
+mainFrame:SetScript("OnShow", function()
+    KL_UI:StartCooldownTicker()
+    KL_UI:RefreshCooldownIndicators()
+end)
+
+mainFrame:SetScript("OnHide", function()
+    KL_UI:StopCooldownTicker()
+end)
 
 -- ── Public: populate the frame with current data ──────────────────────────────
 
@@ -545,6 +864,21 @@ function KL_UI:Populate(members, best)
     local addonTable = _G.KeyLottery
     local GetMapName = (addonTable and addonTable.GetMapName) or function(id)
         return "Map " .. tostring(id)
+    end
+
+    local function FindPlayerMember()
+        local playerFull = GetUnitName("player", true) or UnitName("player")
+        local playerShort = CanonicalName(playerFull)
+        if members[playerShort] then
+            return members[playerShort]
+        end
+
+        for name, data in pairs(members) do
+            if CanonicalName(name) == playerShort then
+                return data
+            end
+        end
+        return nil
     end
 
     -- Rating rows
@@ -574,6 +908,65 @@ function KL_UI:Populate(members, best)
         keys[i].value:Show()
     end
 
+    -- Your scores row (8 dungeons from current season list)
+    local playerMember = FindPlayerMember()
+    local playerScores = (playerMember and playerMember.dungeonScores) or {}
+    local dungeons = GetDisplayedSeasonDungeons()
+
+    for i = 1, YOUR_SCORES_ICON_COUNT do
+        local slot = f._scoreSlots[i]
+        local dungeon = dungeons[i]
+
+        if dungeon then
+            local score = tonumber(playerScores[dungeon.mapID]) or 0
+            local spellID = addonTable and addonTable.GetTeleportSpellIDForMap and addonTable.GetTeleportSpellIDForMap(dungeon.mapID)
+            local spellName = spellID and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID) or nil
+
+            slot.mapName = dungeon.name
+            slot.portalSpellName = spellName
+            slot.teleportSpellID = spellID
+
+            if not InCombatLockdown() then
+                if spellID then
+                    slot:SetAttribute("type", "spell")
+                    slot:SetAttribute("spell", spellID)
+                    slot:EnableMouse(true)
+                    slot.border:SetColor(0.45, 0.45, 0.45, 0.95)
+                else
+                    slot:SetAttribute("type", nil)
+                    slot:SetAttribute("spell", nil)
+                    slot:EnableMouse(true)
+                    slot.border:SetColor(1.00, 0.20, 0.20, 0.95)
+                end
+            else
+                if spellID then
+                    slot.border:SetColor(0.45, 0.45, 0.45, 0.95)
+                else
+                    slot.border:SetColor(1.00, 0.20, 0.20, 0.95)
+                end
+            end
+
+            slot.icon:SetTexture(GetMapIcon(dungeon.mapID))
+            ApplyIconScoreText(slot, score)
+            slot.abbrText:SetText(AbbreviateDungeonName(dungeon.name))
+        else
+            slot.mapName = nil
+            slot.portalSpellName = nil
+            slot.teleportSpellID = nil
+            if not InCombatLockdown() then
+                slot:SetAttribute("type", nil)
+                slot:SetAttribute("spell", nil)
+                slot:EnableMouse(true)
+            end
+            slot.border:SetColor(0.45, 0.45, 0.45, 0.95)
+            slot.icon:SetTexture(134400)
+            ApplyIconScoreText(slot, 0)
+            slot.abbrText:SetText("-")
+        end
+    end
+
+    f:GetScript("OnSizeChanged")(f)
+
     -- Best key box
     if best then
         local spellID = addonTable and addonTable.GetTeleportSpellIDForMap and addonTable.GetTeleportSpellIDForMap(best.mapID)
@@ -581,16 +974,25 @@ function KL_UI:Populate(members, best)
 
         f.bestKeyIconButton.mapName = GetMapName(best.mapID)
         f.bestKeyIconButton.portalSpellName = spellName
+        f.bestKeyTeleportSpellID = spellID
 
         if not InCombatLockdown() then
             if spellID then
                 f.bestKeyIconButton:SetAttribute("type", "spell")
                 f.bestKeyIconButton:SetAttribute("spell", spellID)
                 f.bestKeyIconButton:EnableMouse(true)
+                f.bestKeyIconBorder:SetColor(0.45, 0.45, 0.45, 0.95)
             else
                 f.bestKeyIconButton:SetAttribute("type", nil)
                 f.bestKeyIconButton:SetAttribute("spell", nil)
                 f.bestKeyIconButton:EnableMouse(true)
+                f.bestKeyIconBorder:SetColor(1.00, 0.20, 0.20, 0.95)
+            end
+        else
+            if spellID then
+                f.bestKeyIconBorder:SetColor(0.45, 0.45, 0.45, 0.95)
+            else
+                f.bestKeyIconBorder:SetColor(1.00, 0.20, 0.20, 0.95)
             end
         end
 
@@ -605,11 +1007,13 @@ function KL_UI:Populate(members, best)
     else
         f.bestKeyIconButton.mapName = nil
         f.bestKeyIconButton.portalSpellName = nil
+        f.bestKeyTeleportSpellID = nil
         if not InCombatLockdown() then
             f.bestKeyIconButton:SetAttribute("type", nil)
             f.bestKeyIconButton:SetAttribute("spell", nil)
             f.bestKeyIconButton:EnableMouse(true)
         end
+        f.bestKeyIconBorder:SetColor(0.45, 0.45, 0.45, 0.95)
         f.bestKeyIcon:SetTexture(134400)
         f.bestKeyName:SetText("|cff808080No keystones available|r")
         f.bestKeyOwner:SetText("")
@@ -617,8 +1021,9 @@ function KL_UI:Populate(members, best)
             "|cff606060Ask group members to run Key Party and use /kp refresh.|r")
     end
 
-    f.statusText:SetText(string.format(
-        "Last refresh: %s   *   /kp refresh to update", date("%H:%M:%S")))
+    f.statusText:SetText(string.format("Last refresh: %s", date("%H:%M:%S")))
+
+    self:RefreshCooldownIndicators()
 
     f:Show()
     f:Raise()
@@ -630,4 +1035,44 @@ function KL_UI:Toggle()
     else
         self.frame:Show()
     end
+end
+
+function KL_UI:SetAutoOpenAtDungeonEndChecked(enabled)
+    if self.frame and self.frame.autoOpenAtDungeonEndCheck then
+        self.frame.autoOpenAtDungeonEndCheck:SetChecked(enabled and true or false)
+    end
+end
+
+function KL_UI:GetInstanceScoreColorDebugLines()
+    local lines = {}
+    if not self.frame or not self.frame._scoreSlots then
+        return lines
+    end
+
+    for _, slot in ipairs(self.frame._scoreSlots) do
+        if slot.mapName then
+            local score = tonumber(slot.lastScoreValue) or 0
+            local color = slot.lastScoreColor
+            if color and color.r and color.g and color.b then
+                local source = tostring(slot.lastScoreColorSource or "unknown")
+                lines[#lines + 1] = string.format(
+                    "%s: score=%d rgb=%.3f/%.3f/%.3f source=%s",
+                    tostring(slot.mapName),
+                    math.floor(score),
+                    tonumber(color.r) or 0,
+                    tonumber(color.g) or 0,
+                    tonumber(color.b) or 0,
+                    source
+                )
+            else
+                lines[#lines + 1] = string.format(
+                    "%s: score=%d rgb=n/a source=n/a",
+                    tostring(slot.mapName),
+                    math.floor(score)
+                )
+            end
+        end
+    end
+
+    return lines
 end

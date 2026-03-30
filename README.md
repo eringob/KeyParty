@@ -23,10 +23,49 @@ Because of this, group members only share their keystone if they are also runnin
 
 ## Usage
 
-- `/kp refresh` or `/keyparty refresh`
-  - Reads ratings, requests keystones, and prints a report.
+Main slash commands:
+
+- `/kp`
+  - Opens/closes the addon frame.
+  - If there is no cached data yet, it triggers a refresh first.
+- `/keyparty`
+  - Alias of `/kp`.
+
+### User Commands
+
+- `/kp refresh`
+  - Refreshes ratings and keys, then updates UI/report.
 - `/kp report`
-  - Prints the latest report from the current cache.
+  - Prints the latest cached group report.
+
+When a usage/help chat prompt is shown in-game, only these user commands are listed:
+
+- `/kp [refresh|report]`
+
+### Developer Commands (Internal)
+
+These commands remain available for development and debugging, but are not shown in the user-facing usage prompt:
+
+- `/kp debug`
+  - Prints debug information about current internal state.
+- `/kp debugaddon`
+  - Prints addon presence/debug status for current group members.
+- `/kp debugcolors`
+  - Dumps instance score color info used by the icon coloring logic.
+- `/kp debugcooldown`
+  - Enables cooldown debug mode for 45 seconds.
+- `/kp debugcooldown <seconds>`
+  - Enables cooldown debug mode for the provided duration.
+  - Example: `/kp debugcooldown 90`
+- `/kp debugcooldown off`
+  - Disables cooldown debug mode.
+- `/kp testdungeonend`
+  - Simulates end-of-dungeon refresh behavior for testing.
+- `/kp dumpapi`
+  - Prints a dump of available dungeon-score API results for debugging.
+- `/kp setportal <mapID> <spellID>`
+  - Stores or overrides a portal spell mapping for a dungeon map.
+  - Example: `/kp setportal 5042 445424`
 
 ## Heuristic for the "best progression key"
 

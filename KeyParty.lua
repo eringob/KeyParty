@@ -46,10 +46,90 @@ KeyLottery.members = {}
 KeyLottery.lastReportTime = 0
 
 local EnsureMember
+local DetectAddonChannel
+local IsGroupCommunicationAllowed
+local CanonicalName
+local SafeName
+local GroupUnits
 local inspectQueue = {}
 local inspectQueuedByGUID = {}
 local inspectMetaByGUID = {}
 local inspectInFlightGUID = nil
+local postDungeonRefreshSerial = 0
+local addonPresenceByName = {}
+local addonPresenceProbeToken = 0
+local addonPresenceProbePendingUntil = 0
+
+local function IsAutoOpenAtDungeonEndEnabled()
+    if type(KeyLotteryDB) ~= "table" then
+        KeyLotteryDB = {}
+    end
+    return KeyLotteryDB.autoOpenAtDungeonEnd == true
+end
+
+local function SetAutoOpenAtDungeonEndEnabled(enabled)
+    if type(KeyLotteryDB) ~= "table" then
+        KeyLotteryDB = {}
+    end
+    KeyLotteryDB.autoOpenAtDungeonEnd = enabled and true or false
+end
+
+local function MarkAddonPresence(name)
+    local canonical = CanonicalName(name)
+    if canonical ~= "Unknown" then
+        addonPresenceByName[canonical] = true
+    end
+end
+
+local function AreAllGroupMembersUsingAddon()
+    local units = GroupUnits()
+    for _, unit in ipairs(units) do
+        if UnitExists(unit) then
+            local name = SafeName(unit)
+            if name ~= "Unknown" and not addonPresenceByName[name] then
+                return false
+            end
+        end
+    end
+    return true
+end
+
+local function TriggerAddonPresenceProbe()
+    if not IsGroupCommunicationAllowed() then
+        return
+    end
+
+    local channel = DetectAddonChannel()
+    if channel == "WHISPER" then
+        return
+    end
+
+    addonPresenceProbeToken = addonPresenceProbeToken + 1
+    local token = addonPresenceProbeToken
+    addonPresenceProbePendingUntil = GetTime() + 3.0
+
+    C_Timer.After(0.35, function()
+        if token ~= addonPresenceProbeToken then
+            return
+        end
+
+        local selfName = SafeName("player")
+        local refreshed = {}
+        local units = GroupUnits()
+        for _, unit in ipairs(units) do
+            if UnitExists(unit) then
+                local memberName = SafeName(unit)
+                if memberName ~= "Unknown" then
+                    refreshed[memberName] = addonPresenceByName[memberName] == true
+                end
+            end
+        end
+        refreshed[selfName] = true
+        addonPresenceByName = refreshed
+
+        C_ChatInfo.SendAddonMessage(KeyLottery.prefix, "PING_REQ", channel)
+    end)
+end
 
 local function RefreshUIIfVisible()
     if KL_UI and KL_UI.frame and KL_UI.frame:IsShown() then
@@ -65,7 +145,7 @@ local function Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff98Key Party|r: " .. tostring(msg))
 end
 
-local function CanonicalName(name)
+CanonicalName = function(name)
     local n = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if n == "" then
         return "Unknown"
@@ -73,7 +153,7 @@ local function CanonicalName(name)
     return Ambiguate(n, "short")
 end
 
-local function SafeName(unit)
+SafeName = function(unit)
     local name, realm = UnitName(unit)
     if not name then
         return "Unknown"
@@ -99,7 +179,7 @@ local function FullName(unit)
     return name
 end
 
-local function GroupUnits()
+GroupUnits = function()
     local units = {}
 
     if IsInRaid() then
@@ -459,6 +539,20 @@ end
 
 local function RequestExternalKeys(channel)
     if channel == "PARTY" or channel == "RAID" or channel == "INSTANCE_CHAT" then
+        if not IsGroupCommunicationAllowed() then
+            return
+        end
+
+        -- Skip visible !keys if everyone in group is known to run this addon.
+        if AreAllGroupMembersUsingAddon() then
+            return
+        end
+
+        -- During a recent probe window, wait for addon pings to settle first.
+        if GetTime() < addonPresenceProbePendingUntil then
+            return
+        end
+
         -- Many key addons respond to !keys in group chat.
         ---@diagnostic disable-next-line: deprecated
         SendChatMessage("!keys", channel)
@@ -931,7 +1025,24 @@ local function SnapshotGroupRatings()
     ProcessInspectQueue()
 end
 
-local function DetectAddonChannel()
+IsGroupCommunicationAllowed = function()
+    if not IsInGroup() and not IsInRaid() and not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+        return false
+    end
+
+    local groupSize = GetNumGroupMembers()
+    if (not groupSize or groupSize <= 0) and IsInGroup() then
+        groupSize = GetNumSubgroupMembers() + 1
+    end
+
+    return (groupSize or 0) > 0 and groupSize <= 5
+end
+
+DetectAddonChannel = function()
+    if not IsGroupCommunicationAllowed() then
+        return "WHISPER"
+    end
+
     if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
         return "INSTANCE_CHAT"
     end
@@ -944,12 +1055,22 @@ local function DetectAddonChannel()
     return "WHISPER"
 end
 
-local function RefreshAndReport()
+local function SnapshotLocalState()
     KeyLottery.members = {}
     SnapshotGroupRatings()
 
     local playerMember = EnsureMember(SafeName("player"))
     playerMember.key = GetOwnedKeyInfo()
+end
+
+local function RefreshAndReport(options)
+    local passive = (type(options) == "table" and options.passive) and true or false
+    local propagateGroupRefresh = true
+    if type(options) == "table" and options.propagateGroupRefresh == false then
+        propagateGroupRefresh = false
+    end
+
+    SnapshotLocalState()
 
     local channel = DetectAddonChannel()
 
@@ -959,6 +1080,9 @@ local function RefreshAndReport()
         C_ChatInfo.SendAddonMessage(KeyLottery.prefix, msg, channel, playerName)
         SendOwnKeyInfo(channel, playerName)
     else
+        if propagateGroupRefresh then
+            C_ChatInfo.SendAddonMessage(KeyLottery.prefix, "REFRESH_REQ", channel)
+        end
         C_ChatInfo.SendAddonMessage(KeyLottery.prefix, "KEY_REQ", channel)
         SendOwnKeyInfo(channel)
         RequestExternalKeys(channel)
@@ -967,19 +1091,73 @@ local function RefreshAndReport()
     C_Timer.After(2.0, function()
         local best = BestProgressionKey()
         if KL_UI then
-            local ok, err = pcall(function()
-                KL_UI:Populate(KeyLottery.members, best)
-            end)
-            if not ok then
-                Print("UI update failed, falling back to chat report.")
-                Print(tostring(err))
-                PrintRatingsReport()
+            local shouldPopulate = (not passive)
+                or (KL_UI.frame and KL_UI.frame:IsShown())
+
+            if shouldPopulate then
+                local ok, err = pcall(function()
+                    KL_UI:Populate(KeyLottery.members, best)
+                end)
+                if not ok then
+                    Print("UI update failed, falling back to chat report.")
+                    Print(tostring(err))
+                    if not passive then
+                        PrintRatingsReport()
+                    end
+                end
             end
-        else
+
+        elseif not passive then
             PrintRatingsReport()
         end
         KeyLottery.lastReportTime = GetServerTime()
     end)
+end
+
+local function HandleRemoteRefreshRequest(channel, sender)
+    SnapshotLocalState()
+
+    if channel == "WHISPER" and sender and sender ~= "" then
+        SendOwnKeyInfo("WHISPER", sender)
+    else
+        SendOwnKeyInfo(channel)
+    end
+
+    if KL_UI and KL_UI.frame and KL_UI.frame:IsShown() then
+        local best = BestProgressionKey()
+        KL_UI:Populate(KeyLottery.members, best)
+    end
+end
+
+local function SchedulePostDungeonAutoRefresh()
+    postDungeonRefreshSerial = postDungeonRefreshSerial + 1
+    local serial = postDungeonRefreshSerial
+    local shouldAutoOpen = IsAutoOpenAtDungeonEndEnabled()
+    local refreshOptions = {
+        passive = not shouldAutoOpen,
+    }
+
+    -- Run twice to catch delayed API updates right after end-of-run screens.
+    C_Timer.After(4.0, function()
+        if serial == postDungeonRefreshSerial then
+            RefreshAndReport(refreshOptions)
+        end
+    end)
+
+    C_Timer.After(14.0, function()
+        if serial == postDungeonRefreshSerial then
+            RefreshAndReport(refreshOptions)
+        end
+    end)
+end
+
+local function TestDungeonEndBehavior()
+    local shouldAutoOpen = IsAutoOpenAtDungeonEndEnabled()
+    Print(string.format(
+        "Testing end-of-dungeon behavior: auto-open is %s",
+        shouldAutoOpen and "ON" or "OFF"
+    ))
+    RefreshAndReport({ passive = not shouldAutoOpen })
 end
 
 local function CountEntries(tbl)
@@ -1067,12 +1245,72 @@ local function PrintDebugReport()
     end
 end
 
+local function PrintAddonPresenceDebug()
+    TriggerAddonPresenceProbe()
+
+    C_Timer.After(0.8, function()
+        local names = {}
+        local seen = {}
+        for _, unit in ipairs(GroupUnits()) do
+            if UnitExists(unit) then
+                local name = SafeName(unit)
+                if name ~= "Unknown" and not seen[name] then
+                    seen[name] = true
+                    names[#names + 1] = name
+                end
+            end
+        end
+
+        table.sort(names)
+
+        if #names == 0 then
+            Print("Addon presence: no group members found.")
+            return
+        end
+
+        Print("=== Debug: Addon Presence ===")
+        for _, name in ipairs(names) do
+            local hasAddon = addonPresenceByName[name] == true
+            Print(string.format("- %s: %s", name, hasAddon and "yes" or "no"))
+        end
+        Print(string.format(
+            "All detected in group: %s",
+            AreAllGroupMembersUsingAddon() and "yes" or "no"
+        ))
+    end)
+end
+
 local function HandleAddonMessage(prefix, message, channel, sender)
     if prefix ~= KeyLottery.prefix or not message then
         return
     end
 
+    if channel ~= "WHISPER" and not IsGroupCommunicationAllowed() then
+        return
+    end
+
     local senderName = CanonicalName(sender or "Unknown")
+    MarkAddonPresence(senderName)
+    local selfName = SafeName("player")
+
+    if message == "PING_REQ" then
+        if sender and sender ~= "" and senderName ~= selfName then
+            C_ChatInfo.SendAddonMessage(KeyLottery.prefix, "PING_ACK", "WHISPER", sender)
+        end
+        return
+    end
+
+    if message == "PING_ACK" then
+        return
+    end
+
+    if message == "REFRESH_REQ" then
+        if senderName ~= selfName then
+            HandleRemoteRefreshRequest(channel, sender)
+        end
+        return
+    end
+
     local member = EnsureMember(senderName)
 
     if message == "KEY_REQ" then
@@ -1101,6 +1339,8 @@ local function HandleAddonMessage(prefix, message, channel, sender)
         else
             member.key = nil
         end
+
+        RefreshUIIfVisible()
     end
 end
 
@@ -1136,6 +1376,82 @@ local function HandleSlash(msg)
         return
     end
 
+    if cmd == "debugaddon" then
+        PrintAddonPresenceDebug()
+        return
+    end
+
+    if cmd == "testdungeonend" then
+        TestDungeonEndBehavior()
+        return
+    end
+
+    if cmd == "debugcolors" then
+        if not (KL_UI and KL_UI.GetInstanceScoreColorDebugLines) then
+            Print("UI not available for color debug.")
+            return
+        end
+
+        local delay = 0.2
+        if not (KL_UI.frame and KL_UI.frame:IsShown()) then
+            RefreshAndReport()
+            delay = 2.4
+        end
+
+        C_Timer.After(delay, function()
+            local lines = KL_UI:GetInstanceScoreColorDebugLines()
+            if #lines == 0 then
+                Print("No instance score color data available.")
+                return
+            end
+
+            Print("=== Debug: Instance Score Colors ===")
+            for _, line in ipairs(lines) do
+                Print(line)
+            end
+        end)
+        return
+    end
+
+    if cmd == "debugcooldown" then
+        if KL_UI and KL_UI.SetDebugCooldown then
+            KL_UI:SetDebugCooldown(45)
+            Print("Debug cooldown enabled for 45s.")
+        else
+            Print("UI not available for debug cooldown.")
+        end
+        return
+    end
+
+    if cmd:match("^debugcooldown%s+") then
+        local arg = cmd:match("^debugcooldown%s+(.+)$")
+        arg = tostring(arg or ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+        if arg == "off" or arg == "0" then
+            if KL_UI and KL_UI.SetDebugCooldown then
+                KL_UI:SetDebugCooldown(nil)
+                Print("Debug cooldown disabled.")
+            else
+                Print("UI not available for debug cooldown.")
+            end
+            return
+        end
+
+        local seconds = tonumber(arg)
+        if not seconds or seconds <= 0 then
+            Print("Usage: /kp debugcooldown [seconds|off]")
+            return
+        end
+
+        if KL_UI and KL_UI.SetDebugCooldown then
+            KL_UI:SetDebugCooldown(seconds)
+            Print(string.format("Debug cooldown enabled for %ds.", math.floor(seconds)))
+        else
+            Print("UI not available for debug cooldown.")
+        end
+        return
+    end
+
     if cmd == "dumpapi" then
         PrintApiDump()
         return
@@ -1160,31 +1476,7 @@ local function HandleSlash(msg)
         return
     end
 
-    if cmd:match("^setkey%s+") then
-        local args = cmd:gsub("^setkey%s+", "")
-        local playerName, mapInput, levelInput = args:match("^(%S+)%s+(.+)%s+(%d+)$")
-        if not playerName or not mapInput or not levelInput then
-            Print("Usage: /kp setkey <player> <map id or dungeon name> <level>")
-            return
-        end
-
-        local ok, a, b, c = SetManualMemberKey(playerName, mapInput, levelInput)
-        if not ok then
-            Print("Manual key failed: " .. tostring(a))
-            return
-        end
-
-        local ownerName, mapID, level = a, b, c
-        Print(string.format("Manual key set: %s -> %s +%d", ownerName, GetMapName(mapID), level))
-
-        if KL_UI and KL_UI.frame and KL_UI.frame:IsShown() then
-            local best = BestProgressionKey()
-            KL_UI:Populate(KeyLottery.members, best)
-        end
-        return
-    end
-
-    Print("Usage: /kp [refresh|report|debug|dumpapi|setkey|setportal]")
+    Print("Usage: /kp [refresh|report]")
 end
 
 SLASH_KEYLOTTERY1 = "/keyparty"
@@ -1200,23 +1492,19 @@ KeyLottery:SetScript("OnEvent", function(_, event, ...)
 
         NormalizePortalSpellMap()
         SeedDefaultPortalMappings()
+        MarkAddonPresence(SafeName("player"))
+        if KeyLotteryDB.autoOpenAtDungeonEnd == nil then
+            KeyLotteryDB.autoOpenAtDungeonEnd = false
+        end
 
         C_ChatInfo.RegisterAddonMessagePrefix(KeyLottery.prefix)
         if KL_UI then
             KL_UI.OnRefresh = RefreshAndReport
-            KL_UI.OnManualSetKey = function(playerName, mapInput, levelInput)
-                local ok, a, b, c = SetManualMemberKey(playerName, mapInput, levelInput)
-                if not ok then
-                    Print("Manual key failed: " .. tostring(a))
-                    return false
-                end
-
-                local ownerName, mapID, level = a, b, c
-                Print(string.format("Manual key set: %s -> %s +%d", ownerName, GetMapName(mapID), level))
-
-                local best = BestProgressionKey()
-                KL_UI:Populate(KeyLottery.members, best)
-                return true
+            KL_UI.OnToggleAutoOpenAtDungeonEnd = function(enabled)
+                SetAutoOpenAtDungeonEndEnabled(enabled)
+            end
+            if KL_UI.SetAutoOpenAtDungeonEndChecked then
+                KL_UI:SetAutoOpenAtDungeonEndChecked(IsAutoOpenAtDungeonEndEnabled())
             end
         end
         Print("loaded. Use /kp to open the panel.")
@@ -1240,6 +1528,17 @@ KeyLottery:SetScript("OnEvent", function(_, event, ...)
             local best = BestProgressionKey()
             KL_UI:Populate(KeyLottery.members, best)
         end
+        return
+    end
+
+    if event == "GROUP_ROSTER_UPDATE" then
+        TriggerAddonPresenceProbe()
+        return
+    end
+
+    if event == "CHALLENGE_MODE_COMPLETED" then
+        SchedulePostDungeonAutoRefresh()
+        return
     end
 end)
 
@@ -1249,3 +1548,5 @@ KeyLottery:RegisterEvent("INSPECT_READY")
 KeyLottery:RegisterEvent("CHAT_MSG_PARTY")
 KeyLottery:RegisterEvent("CHAT_MSG_RAID")
 KeyLottery:RegisterEvent("CHAT_MSG_INSTANCE_CHAT")
+KeyLottery:RegisterEvent("GROUP_ROSTER_UPDATE")
+KeyLottery:RegisterEvent("CHALLENGE_MODE_COMPLETED")
