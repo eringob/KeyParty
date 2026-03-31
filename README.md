@@ -45,6 +45,7 @@ The main frame contains four sections:
 
 - `GROUP RATINGS`
   - Shows the current Mythic+ rating for each visible group member.
+  - Player names include `-Realm` when that player is on a different realm than you.
 - `AVAILABLE KEYSTONES`
   - Shows up to five party keystones as large dungeon icons across the width of the frame.
   - Each icon shows:
@@ -67,6 +68,14 @@ The main frame contains four sections:
   - The key level is shown inside the icon.
   - The dungeon name, owner, and recommendation reason are shown next to it.
   - If a teleport is available for that dungeon, the icon is clickable and shows cooldown state.
+
+Bottom options:
+
+- `Auto open after dungeon finish`
+  - Automatically opens the frame when end-of-dungeon refresh runs.
+- `Party chat announcement Best Progression Key after dungeon finish`
+  - Sends the best progression key announcement to group chat (`INSTANCE_CHAT` / `RAID` / `PARTY`) after dungeon completion.
+  - If disabled, the announcement stays local.
 
 When a usage/help chat prompt is shown in-game, only these user commands are listed:
 
@@ -114,7 +123,9 @@ This gives a practical recommendation for group progression.
 - Keystones are still shared by addon communication, so other players must run the addon for their key to appear here.
 - Weekly affixes are read from the live Blizzard Mythic+ API for the current week.
 - Dungeon score colors use Blizzard rarity color data when available, with fallback thresholds when needed.
-- After the automatic end-of-dungeon refresh, if at least one party member is not using the addon, Key Party prints the next best progression key to chat.
+- After the automatic end-of-dungeon refresh, if at least one party member is not using the addon, Key Party prints the next best progression key.
+- When group version data is available, the addon warns you in local chat if your installed Key Party version is older than someone else in your current group.
+- Internal addon identifiers now use `KeyParty`; existing saved settings are migrated automatically from older `KeyLottery` data.
 
 ## License
 

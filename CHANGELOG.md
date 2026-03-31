@@ -2,7 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
-## [1.1.0] - 2026-03-30
+## [1.3.0] - 2026-03-30
+
+### Changed
+- Repository ignore rules now also ignore `.gitignore` itself.
+- Internal identifiers were renamed from `KeyLottery` to `KeyParty`, including SavedVariables and addon message prefix usage.
+- Opening the Key Party frame for the first time after login now immediately triggers a data refresh.
+- The refresh button now uses an icon instead of the `Refresh` text label.
+- The refresh header button now uses a WoW atlas icon instead of a Unicode glyph fallback.
+- The close button now matches the refresh button with the same compact icon-button styling.
+- The refresh and close header icons are now aligned on the same baseline with consistent spacing.
+- When no keystone is available, keystone sections now show a Mythic+ keystone icon instead of a question mark.
+- Added a checkbox option for a party chat Best Progression Key announcement after dungeon completion.
+- Group rating names now include the player's realm when that player is on a different realm.
+- The main frame height was increased so the end-of-dungeon option checkboxes fit fully inside the UI.
+- The bottom option checkboxes and labels were reduced in size, and the auto-open label text was updated.
+- The addon now warns the local player in chat when a newer Key Party version is detected in the current group.
+- End-of-dungeon announcement text now omits embedded addon prefixes for local output, and uses `Key Party:` when sent to group chat.
+- Bottom status and checkbox anchors were adjusted so `Last refresh`, `Auto open`, and `Party chat` stay fully inside the frame.
+
+## [1.2.0] - 2026-03-30
 
 ### Added
 - Addon presence probing in party groups using `PING_REQ` and `PING_ACK` addon messages.

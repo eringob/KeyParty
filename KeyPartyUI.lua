@@ -7,7 +7,7 @@ _G.KL_UI = KL_UI
 -- ── Constants ─────────────────────────────────────────────────────────────────
 
 local FRAME_W   = 620
-local FRAME_H   = 740
+local FRAME_H   = 780
 local ROW_H     = 18     -- pixels per member row
 local MAX_ROWS  = 25     -- pool size per section (handles raids)
 local COL_NAME_X  = 14
@@ -17,11 +17,24 @@ local TITLE_ICON_FALLBACK = 134419
 local TITLE_BANNER_SOURCE_W = 1536
 local TITLE_BANNER_SOURCE_H = 483
 local TITLE_BAR_H = math.floor((FRAME_W * TITLE_BANNER_SOURCE_H) / TITLE_BANNER_SOURCE_W + 0.5)
+local HEADER_ICON_BUTTON_W = 28
+local HEADER_ICON_BUTTON_H = 22
+local HEADER_ICON_SIZE = 14
+local HEADER_ICON_BUTTON_MARGIN = 4
+local HEADER_ICON_BUTTON_GAP = 2
+local CLOSE_ICON_TEXTURE = "Interface\\Buttons\\UI-GroupLoot-Pass-Up"
+local REFRESH_ICON_ATLAS = "transmog-icon-revert"
+local EMPTY_ICON_TEXTURE = 134400
+local KEYSTONE_ICON_ITEM_CANDIDATES = { 180653, 158923, 138019 }
 local YOUR_SCORES_ICON_COUNT = 8
 local PARTY_KEYSTONE_ICON_COUNT = 5
 local KEY_AREA_COLUMN_COUNT = 6
 local BEST_KEY_ICON_SIZE = 74
 local WEEKLY_AFFIX_LEVEL_LABELS = { "+4", "+7", "+10", "+12" }
+local OPTION_CHECKBOX_SCALE = 0.72
+local STATUS_TEXT_BOTTOM_OFFSET = 48
+local AUTO_OPEN_OPTION_BOTTOM_OFFSET = 28
+local PARTY_CHAT_OPTION_BOTTOM_OFFSET = 8
 
 -- Raider.io-style rating colour thresholds
 local RATING_COLORS = {
@@ -182,6 +195,13 @@ local function ColoredPlayerName(name, member)
     return tostring(name or "Unknown")
 end
 
+local function GroupRatingDisplayName(name, member)
+    if type(member) == "table" and member.displayName and member.displayName ~= "" then
+        return member.displayName
+    end
+    return tostring(name or "Unknown")
+end
+
 local function CanonicalName(name)
     local n = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if n == "" then
@@ -261,9 +281,67 @@ local function EllipsizeTextToWidth(fontString, text, maxWidth)
     return raw:sub(1, low) .. ellipsis
 end
 
+local function ConfigureHeaderIconButton(button, iconTexture, tooltipText, tooltipAnchor, iconGlyph, iconAtlas)
+    if not button then
+        return
+    end
+
+    button:SetText("")
+
+    local icon = button._iconTexture
+    if not icon then
+        icon = button:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(HEADER_ICON_SIZE, HEADER_ICON_SIZE)
+        icon:SetPoint("CENTER", button, "CENTER", 0, 0)
+        button._iconTexture = icon
+    end
+
+    local glyph = button._iconGlyph
+    if not glyph then
+        glyph = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        glyph:SetPoint("CENTER", button, "CENTER", 0, 0)
+        button._iconGlyph = glyph
+    end
+
+    if iconAtlas and icon.SetAtlas then
+        icon:SetAtlas(iconAtlas, true)
+        icon:SetVertexColor(0.92, 0.92, 0.95, 1)
+        icon:Show()
+        glyph:SetText("")
+        glyph:Hide()
+    elseif iconTexture then
+        icon:SetTexture(iconTexture)
+        icon:SetVertexColor(0.92, 0.92, 0.95, 1)
+        icon:Show()
+        glyph:SetText("")
+        glyph:Hide()
+    else
+        icon:SetTexture(nil)
+        icon:Hide()
+        glyph:SetText(iconGlyph or "")
+        glyph:SetTextColor(0.92, 0.92, 0.95, 1)
+        glyph:Show()
+    end
+
+    button:SetScript("OnEnter", function(btn)
+        if not GameTooltip then
+            return
+        end
+        GameTooltip:SetOwner(btn, tooltipAnchor or "ANCHOR_RIGHT")
+        GameTooltip:SetText(tooltipText or "", 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+
+    button:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+end
+
 local function GetMapIcon(mapID)
     if not mapID or not C_ChallengeMode or not C_ChallengeMode.GetMapUIInfo then
-        return 134400 -- INV_Misc_QuestionMark
+        return EMPTY_ICON_TEXTURE -- INV_Misc_QuestionMark
     end
 
     -- In modern builds this is typically: name, id, timeLimit, texture
@@ -272,7 +350,30 @@ local function GetMapIcon(mapID)
         return texture
     end
 
-    return 134400
+    return EMPTY_ICON_TEXTURE
+end
+
+local function GetEmptyKeystoneIcon()
+    if KL_UI._emptyKeystoneIcon then
+        return KL_UI._emptyKeystoneIcon
+    end
+
+    local icon = nil
+    local itemApi = C_Item and C_Item.GetItemIconByID
+
+    for _, itemID in ipairs(KEYSTONE_ICON_ITEM_CANDIDATES) do
+        if itemApi then
+            icon = itemApi(itemID)
+        end
+
+        if icon then
+            KL_UI._emptyKeystoneIcon = icon
+            return icon
+        end
+    end
+
+    KL_UI._emptyKeystoneIcon = EMPTY_ICON_TEXTURE
+    return KL_UI._emptyKeystoneIcon
 end
 
 local function GetCurrentAffixList()
@@ -525,7 +626,7 @@ end
 -- ── Build the main frame ──────────────────────────────────────────────────────
 
 local function BuildFrame()
-    local f = CreateFrame("Frame", "KeyLotteryMainFrame", UIParent, "BackdropTemplate")
+    local f = CreateFrame("Frame", "KeyPartyMainFrame", UIParent, "BackdropTemplate")
     f:SetSize(FRAME_W, FRAME_H)
     f:SetPoint("CENTER")
     f:SetMovable(true)
@@ -552,15 +653,17 @@ local function BuildFrame()
     f.titleBanner = titleBanner
 
     -- Close button
-    local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    closeBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", 2, 2)
+    local closeBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    closeBtn:SetSize(HEADER_ICON_BUTTON_W, HEADER_ICON_BUTTON_H)
+    closeBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -HEADER_ICON_BUTTON_MARGIN, -HEADER_ICON_BUTTON_MARGIN)
+    ConfigureHeaderIconButton(closeBtn, CLOSE_ICON_TEXTURE, "Close", "ANCHOR_LEFT")
     closeBtn:SetScript("OnClick", function() f:Hide() end)
 
     -- Refresh button
     local refreshBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    refreshBtn:SetSize(80, 22)
-    refreshBtn:SetPoint("TOPRIGHT", closeBtn, "TOPLEFT", -2, -4)
-    refreshBtn:SetText("Refresh")
+    refreshBtn:SetSize(HEADER_ICON_BUTTON_W, HEADER_ICON_BUTTON_H)
+    refreshBtn:SetPoint("TOPRIGHT", closeBtn, "TOPLEFT", -HEADER_ICON_BUTTON_GAP, 0)
+    ConfigureHeaderIconButton(refreshBtn, nil, "Refresh", "ANCHOR_RIGHT", nil, REFRESH_ICON_ATLAS)
     refreshBtn:SetScript("OnClick", function()
         if KL_UI.OnRefresh then KL_UI.OnRefresh() end
     end)
@@ -630,7 +733,7 @@ local function BuildFrame()
         icon:SetPoint("TOP", slot, "TOP", 0, 0)
         icon:SetSize(BEST_KEY_ICON_SIZE, BEST_KEY_ICON_SIZE)
         icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        icon:SetTexture(134400)
+        icon:SetTexture(GetEmptyKeystoneIcon())
 
         local border = CreateIconEdgeBorder(slot, icon)
 
@@ -870,7 +973,7 @@ local function BuildFrame()
     local bestIcon = bestIconButton:CreateTexture(nil, "ARTWORK")
     bestIcon:SetAllPoints()
     bestIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    bestIcon:SetTexture(134400)
+    bestIcon:SetTexture(GetEmptyKeystoneIcon())
 
     local bestIconBorder = CreateIconEdgeBorder(bestIconButton, bestIcon)
 
@@ -936,19 +1039,19 @@ local function BuildFrame()
 
     -- ── Status bar ────────────────────────────────────────────────────────────
     local statusText = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    statusText:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 30)
+    statusText:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, STATUS_TEXT_BOTTOM_OFFSET)
     statusText:SetTextColor(0.45, 0.45, 0.50, 1)
     statusText:SetText("No data yet. Click Refresh.")
     f.statusText = statusText
 
     local autoOpenCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    autoOpenCheck:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 2)
-    autoOpenCheck:SetScale(0.82)
+    autoOpenCheck:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, AUTO_OPEN_OPTION_BOTTOM_OFFSET)
+    autoOpenCheck:SetScale(OPTION_CHECKBOX_SCALE)
     autoOpenCheck:SetChecked(false)
 
-    local autoOpenLabel = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local autoOpenLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     autoOpenLabel:SetPoint("LEFT", autoOpenCheck, "RIGHT", -1, 0)
-    autoOpenLabel:SetText("Auto open at the end of a dungeon")
+    autoOpenLabel:SetText("Auto open after dungeon finish")
     autoOpenLabel:SetTextColor(0.78, 0.78, 0.82, 1)
 
     autoOpenCheck:SetScript("OnClick", function(btn)
@@ -957,8 +1060,29 @@ local function BuildFrame()
         end
     end)
 
+    local partyAnnouncementCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+    partyAnnouncementCheck:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, PARTY_CHAT_OPTION_BOTTOM_OFFSET)
+    partyAnnouncementCheck:SetScale(OPTION_CHECKBOX_SCALE)
+    partyAnnouncementCheck:SetChecked(false)
+
+    local partyAnnouncementLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    partyAnnouncementLabel:SetPoint("TOPLEFT", partyAnnouncementCheck, "TOPRIGHT", -1, -1)
+    partyAnnouncementLabel:SetWidth(FRAME_W - 56)
+    partyAnnouncementLabel:SetJustifyH("LEFT")
+    partyAnnouncementLabel:SetJustifyV("TOP")
+    partyAnnouncementLabel:SetText("Party chat announcement Best Progression Key after dungeon finish")
+    partyAnnouncementLabel:SetTextColor(0.78, 0.78, 0.82, 1)
+
+    partyAnnouncementCheck:SetScript("OnClick", function(btn)
+        if KL_UI.OnTogglePartyChatAnnouncementAtDungeonEnd then
+            KL_UI.OnTogglePartyChatAnnouncementAtDungeonEnd(btn:GetChecked() == true)
+        end
+    end)
+
     f.autoOpenAtDungeonEndCheck = autoOpenCheck
     f.autoOpenAtDungeonEndLabel = autoOpenLabel
+    f.partyChatAnnouncementAtDungeonEndCheck = partyAnnouncementCheck
+    f.partyChatAnnouncementAtDungeonEndLabel = partyAnnouncementLabel
 
     return f
 end
@@ -1024,6 +1148,9 @@ end
 mainFrame:SetScript("OnShow", function()
     KL_UI:StartCooldownTicker()
     KL_UI:RefreshCooldownIndicators()
+    if KL_UI.ShouldRefreshOnShow and KL_UI.ShouldRefreshOnShow() and KL_UI.OnRefreshOnShow then
+        KL_UI.OnRefreshOnShow()
+    end
 end)
 
 mainFrame:SetScript("OnHide", function()
@@ -1055,7 +1182,7 @@ function KL_UI:Populate(members, best)
     end
     table.sort(names)
 
-    local addonTable = _G.KeyLottery
+    local addonTable = _G.KeyParty
     local GetMapName = (addonTable and addonTable.GetMapName) or function(id)
         return "Map " .. tostring(id)
     end
@@ -1080,7 +1207,7 @@ function KL_UI:Populate(members, best)
         if i > MAX_ROWS then break end
         local m   = members[name]
         local rat = m.totalRating or 0
-        rows[i].name:SetText(ColoredPlayerName(name, m))
+        rows[i].name:SetText(ColoredPlayerName(GroupRatingDisplayName(name, m), m))
         rows[i].value:SetText(ColoredRating(rat))
         rows[i].name:Show()
         rows[i].value:Show()
@@ -1302,7 +1429,7 @@ function KL_UI:Populate(members, best)
             f.bestKeyIconButton:EnableMouse(true)
         end
         f.bestKeyIconBorder:SetColor(0.45, 0.45, 0.45, 0.95)
-        f.bestKeyIcon:SetTexture(134400)
+        f.bestKeyIcon:SetTexture(GetEmptyKeystoneIcon())
         if f.bestKeyLevelText then
             f.bestKeyLevelText:SetText("")
         end
@@ -1331,6 +1458,12 @@ end
 function KL_UI:SetAutoOpenAtDungeonEndChecked(enabled)
     if self.frame and self.frame.autoOpenAtDungeonEndCheck then
         self.frame.autoOpenAtDungeonEndCheck:SetChecked(enabled and true or false)
+    end
+end
+
+function KL_UI:SetPartyChatAnnouncementAtDungeonEndChecked(enabled)
+    if self.frame and self.frame.partyChatAnnouncementAtDungeonEndCheck then
+        self.frame.partyChatAnnouncementAtDungeonEndCheck:SetChecked(enabled and true or false)
     end
 end
 

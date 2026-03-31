@@ -1,8 +1,8 @@
 ## Interface: 120001, 120005
 ## Notes: Group Mythic+ rating and keystone recommendation helper.
 ## Author: Key Party
-## Version: 1.0.0
-## SavedVariables: KeyLotteryDB
+## Version: 1.3.0
+## SavedVariables: KeyPartyDB
 
 KeyParty.lua
 KeyPartyUI.lua

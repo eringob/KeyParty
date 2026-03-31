@@ -1,15 +1,23 @@
 local ADDON_NAME = ...
+local LEGACY_SAVED_VARIABLE_NAME = "Key" .. "LotteryDB"
+local LEGACY_ADDON_PREFIX = "KEY" .. "LOTTERY1"
 
-if type(KeyLotteryDB) ~= "table" then
-    KeyLotteryDB = {}
+if type(KeyPartyDB) ~= "table" then
+    local legacySavedVariables = _G[LEGACY_SAVED_VARIABLE_NAME]
+    if type(legacySavedVariables) == "table" then
+        KeyPartyDB = legacySavedVariables
+    else
+        KeyPartyDB = {}
+    end
 end
+_G[LEGACY_SAVED_VARIABLE_NAME] = nil
 
 local function NormalizePortalSpellMap()
-    if type(KeyLotteryDB) ~= "table" then
-        KeyLotteryDB = {}
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
     end
 
-    local target = KeyLotteryDB.portalSpellByMap
+    local target = KeyPartyDB.portalSpellByMap
     if type(target) ~= "table" then
         target = {}
     end
@@ -21,7 +29,7 @@ local function NormalizePortalSpellMap()
     }
 
     for _, key in ipairs(legacyKeys) do
-        local legacy = KeyLotteryDB[key]
+        local legacy = KeyPartyDB[key]
         if type(legacy) == "table" then
             for mapID, spellID in pairs(legacy) do
                 local m = tonumber(mapID)
@@ -30,25 +38,27 @@ local function NormalizePortalSpellMap()
                     target[m] = s
                 end
             end
-            KeyLotteryDB[key] = nil
+            KeyPartyDB[key] = nil
         end
     end
 
-    KeyLotteryDB.portalSpellByMap = target
+    KeyPartyDB.portalSpellByMap = target
 end
 
 NormalizePortalSpellMap()
 
-local KeyLottery = CreateFrame("Frame")
-_G.KeyLottery = KeyLottery
-KeyLottery.prefix = "KEYLOTTERY1"
-KeyLottery.members = {}
-KeyLottery.lastReportTime = 0
+local KeyParty = CreateFrame("Frame")
+_G.KeyParty = KeyParty
+KeyParty.prefix = "KEYPARTY1"
+KeyParty.legacyPrefix = LEGACY_ADDON_PREFIX
+KeyParty.members = {}
+KeyParty.lastReportTime = 0
 
 local EnsureMember
 local DetectAddonChannel
 local IsGroupCommunicationAllowed
 local CanonicalName
+local Print
 local SafeName
 local GroupUnits
 local inspectQueue = {}
@@ -59,19 +69,96 @@ local postDungeonRefreshSerial = 0
 local addonPresenceByName = {}
 local addonPresenceProbeToken = 0
 local addonPresenceProbePendingUntil = 0
+local lastVersionProbeTime = 0
+local highestNewerAddonVersionSeen = nil
+local initialFrameRefreshPending = true
+
+local function GetAddonVersion()
+    local version = nil
+    if C_AddOns and C_AddOns.GetAddOnMetadata then
+        version = C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")
+    end
+    version = tostring(version or "0.0.0")
+    if version == "" then
+        return "0.0.0"
+    end
+    return version
+end
+
+local function ParseVersionParts(version)
+    local parts = {}
+    for token in tostring(version or "0.0.0"):gmatch("(%d+)") do
+        parts[#parts + 1] = tonumber(token) or 0
+    end
+    return parts
+end
+
+local function CompareVersions(left, right)
+    local leftParts = ParseVersionParts(left)
+    local rightParts = ParseVersionParts(right)
+    local count = math.max(#leftParts, #rightParts, 3)
+
+    for i = 1, count do
+        local l = leftParts[i] or 0
+        local r = rightParts[i] or 0
+        if l ~= r then
+            return l < r and -1 or 1
+        end
+    end
+
+    return 0
+end
+
+local function SendAddonVersion(channel, target)
+    local payload = "VERSION_ACK|" .. GetAddonVersion()
+    C_ChatInfo.SendAddonMessage(KeyParty.prefix, payload, channel, target)
+end
+
+local function MaybeNotifyOutdatedAddonVersion(remoteVersion, senderName)
+    local localVersion = GetAddonVersion()
+    if CompareVersions(remoteVersion, localVersion) <= 0 then
+        return
+    end
+
+    if highestNewerAddonVersionSeen and CompareVersions(remoteVersion, highestNewerAddonVersionSeen) <= 0 then
+        return
+    end
+
+    highestNewerAddonVersionSeen = remoteVersion
+    Print(string.format(
+        "a newer addon version was detected in your group (%s from %s). You are using %s.",
+        tostring(remoteVersion),
+        tostring(senderName or "Unknown"),
+        localVersion
+    ))
+end
 
 local function IsAutoOpenAtDungeonEndEnabled()
-    if type(KeyLotteryDB) ~= "table" then
-        KeyLotteryDB = {}
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
     end
-    return KeyLotteryDB.autoOpenAtDungeonEnd == true
+    return KeyPartyDB.autoOpenAtDungeonEnd == true
 end
 
 local function SetAutoOpenAtDungeonEndEnabled(enabled)
-    if type(KeyLotteryDB) ~= "table" then
-        KeyLotteryDB = {}
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
     end
-    KeyLotteryDB.autoOpenAtDungeonEnd = enabled and true or false
+    KeyPartyDB.autoOpenAtDungeonEnd = enabled and true or false
+end
+
+local function IsPartyChatAnnouncementAtDungeonEndEnabled()
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    return KeyPartyDB.partyChatAnnouncementAtDungeonEnd == true
+end
+
+local function SetPartyChatAnnouncementAtDungeonEndEnabled(enabled)
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    KeyPartyDB.partyChatAnnouncementAtDungeonEnd = enabled and true or false
 end
 
 local function MarkAddonPresence(name)
@@ -127,25 +214,43 @@ local function TriggerAddonPresenceProbe()
         refreshed[selfName] = true
         addonPresenceByName = refreshed
 
-        C_ChatInfo.SendAddonMessage(KeyLottery.prefix, "PING_REQ", channel)
+        C_ChatInfo.SendAddonMessage(KeyParty.prefix, "PING_REQ", channel)
+
+        if GetTime() >= lastVersionProbeTime + 10.0 then
+            lastVersionProbeTime = GetTime()
+            C_ChatInfo.SendAddonMessage(KeyParty.prefix, "VERSION_REQ", channel)
+        end
     end)
 end
 
 local function RefreshUIIfVisible()
     if KL_UI and KL_UI.frame and KL_UI.frame:IsShown() then
         local best = nil
-        if KeyLottery.GetBestProgressionKey then
-            best = KeyLottery.GetBestProgressionKey()
+        if KeyParty.GetBestProgressionKey then
+            best = KeyParty.GetBestProgressionKey()
         end
-        KL_UI:Populate(KeyLottery.members, best)
+        KL_UI:Populate(KeyParty.members, best)
     end
 end
 
-local function Print(msg)
+Print = function(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff98Key Party|r: " .. tostring(msg))
 end
 
-local function PrintBestProgressionKeyAnnouncement(best, force)
+local function DetectAnnouncementChatChannel()
+    if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+        return "INSTANCE_CHAT"
+    end
+    if IsInRaid() then
+        return "RAID"
+    end
+    if IsInGroup() then
+        return "PARTY"
+    end
+    return nil
+end
+
+local function PrintBestProgressionKeyAnnouncement(best, force, sendToGroupChat)
     if not best or not best.mapID or not best.level then
         if force then
             Print("no progression recommendation is currently available.")
@@ -157,15 +262,27 @@ local function PrintBestProgressionKeyAnnouncement(best, force)
         return
     end
 
-    local mapNameResolver = (KeyLottery and KeyLottery.GetMapName) or function(mapID)
+    local mapNameResolver = (KeyParty and KeyParty.GetMapName) or function(mapID)
         return "Map " .. tostring(mapID)
     end
 
-    Print(string.format(
+    local message = string.format(
         "the next best progression key of this party is %s +%d",
         mapNameResolver(best.mapID),
         best.level
-    ))
+    )
+
+    if sendToGroupChat then
+        local channel = DetectAnnouncementChatChannel()
+        if channel then
+            message = "Key Party: " .. message
+            ---@diagnostic disable-next-line: deprecated
+            SendChatMessage(message, channel)
+            return
+        end
+    end
+
+    Print(message)
 end
 
 CanonicalName = function(name)
@@ -202,6 +319,24 @@ local function FullName(unit)
     return name
 end
 
+local function GetRealmAwareDisplayName(unit)
+    local name, realm = UnitName(unit)
+    if not name then
+        return "Unknown", nil, true
+    end
+
+    local playerRealm = GetRealmName()
+    if not realm or realm == "" then
+        realm = playerRealm
+    end
+
+    if realm and realm ~= "" and playerRealm and playerRealm ~= "" and realm ~= playerRealm then
+        return name .. "-" .. realm, realm, false
+    end
+
+    return name, realm, true
+end
+
 GroupUnits = function()
     local units = {}
 
@@ -234,7 +369,7 @@ local function GetMapName(mapID)
     return "Map " .. tostring(mapID)
 end
 -- Expose for KeyPartyUI.lua
-KeyLottery.GetMapName = GetMapName
+KeyParty.GetMapName = GetMapName
 
 local function IsSpellKnownByID(spellID)
     if not spellID then
@@ -254,7 +389,7 @@ local function GetTeleportSpellIDForMap(mapID)
         return nil
     end
     NormalizePortalSpellMap()
-    local spellID = KeyLotteryDB.portalSpellByMap[mapID]
+    local spellID = KeyPartyDB.portalSpellByMap[mapID]
     if not spellID then
         return nil
     end
@@ -264,7 +399,7 @@ local function GetTeleportSpellIDForMap(mapID)
     return nil
 end
 
-KeyLottery.GetTeleportSpellIDForMap = GetTeleportSpellIDForMap
+KeyParty.GetTeleportSpellIDForMap = GetTeleportSpellIDForMap
 
 local function BuildMapNameIndex()
     local index = {}
@@ -323,8 +458,8 @@ local function SeedDefaultPortalMappings()
     NormalizePortalSpellMap()
     for dungeonName, spellID in pairs(DEFAULT_PORTAL_SPELLS_BY_DUNGEON) do
         local mapID = ResolveMapID(dungeonName)
-        if mapID and not KeyLotteryDB.portalSpellByMap[mapID] then
-            KeyLotteryDB.portalSpellByMap[mapID] = spellID
+        if mapID and not KeyPartyDB.portalSpellByMap[mapID] then
+            KeyPartyDB.portalSpellByMap[mapID] = spellID
         end
     end
 end
@@ -592,7 +727,7 @@ local function GetAllKnownMapIDs()
         end
     end
 
-    for _, data in pairs(KeyLottery.members) do
+    for _, data in pairs(KeyParty.members) do
         if data.dungeonScores then
             for mapID in pairs(data.dungeonScores) do
                 known[mapID] = true
@@ -616,9 +751,12 @@ local function GetAllKnownMapIDs()
 end
 
 EnsureMember = function(name)
-    if not KeyLottery.members[name] then
-        KeyLottery.members[name] = {
+    if not KeyParty.members[name] then
+        KeyParty.members[name] = {
             name = name,
+            displayName = name,
+            realm = nil,
+            isSameRealm = true,
             classToken = nil,
             totalRating = 0,
             dungeonScores = {},
@@ -626,7 +764,7 @@ EnsureMember = function(name)
             key = nil,
         }
     end
-    return KeyLottery.members[name]
+    return KeyParty.members[name]
 end
 
 local function ParseRatingSummary(summary)
@@ -921,14 +1059,14 @@ local function SendOwnKeyInfo(channel, target)
         payload = string.format("KEY|0|0|%d", math.floor(totalRating))
     end
 
-    C_ChatInfo.SendAddonMessage(KeyLottery.prefix, payload, channel, target)
+    C_ChatInfo.SendAddonMessage(KeyParty.prefix, payload, channel, target)
 end
 
 local function BestProgressionKey()
     local candidates = {}
     local memberList = {}
 
-    for name, data in pairs(KeyLottery.members) do
+    for name, data in pairs(KeyParty.members) do
         memberList[#memberList + 1] = name
         if data.key and data.key.mapID and data.key.level and data.key.level > 0 then
             local id = data.key.mapID .. ":" .. data.key.level
@@ -951,7 +1089,7 @@ local function BestProgressionKey()
         local counted = 0
 
         for _, memberName in ipairs(memberList) do
-            local data = KeyLottery.members[memberName]
+            local data = KeyParty.members[memberName]
             local score = 0
             if data and data.dungeonScores then
                 score = data.dungeonScores[candidate.mapID] or 0
@@ -984,11 +1122,11 @@ local function BestProgressionKey()
     return best
 end
 
-KeyLottery.GetBestProgressionKey = BestProgressionKey
+KeyParty.GetBestProgressionKey = BestProgressionKey
 
 local function PrintRatingsReport()
     local names = {}
-    for name in pairs(KeyLottery.members) do
+    for name in pairs(KeyParty.members) do
         names[#names + 1] = name
     end
     table.sort(names)
@@ -1002,14 +1140,14 @@ local function PrintRatingsReport()
 
     Print("Total rating per group member:")
     for _, name in ipairs(names) do
-        local m = KeyLottery.members[name]
+        local m = KeyParty.members[name]
         Print(string.format("- %s: %.1f", name, m.totalRating or 0))
     end
 
     Print("Available keystones:")
     local anyKey = false
     for _, name in ipairs(names) do
-        local m = KeyLottery.members[name]
+        local m = KeyParty.members[name]
         if m.key and m.key.level and m.key.level > 0 then
             anyKey = true
             Print(string.format("- %s: %s +%d", name, GetMapName(m.key.mapID), m.key.level))
@@ -1037,6 +1175,10 @@ local function SnapshotGroupRatings()
         if UnitExists(unit) then
             local name = SafeName(unit)
             local member = EnsureMember(name)
+            local displayName, realm, isSameRealm = GetRealmAwareDisplayName(unit)
+            member.displayName = displayName or name
+            member.realm = realm
+            member.isSameRealm = isSameRealm ~= false
             local _, classToken = UnitClass(unit)
             if classToken and classToken ~= "" then
                 member.classToken = classToken
@@ -1096,7 +1238,7 @@ DetectAddonChannel = function()
 end
 
 local function SnapshotLocalState()
-    KeyLottery.members = {}
+    KeyParty.members = {}
     SnapshotGroupRatings()
 
     local playerMember = EnsureMember(SafeName("player"))
@@ -1108,6 +1250,7 @@ local function RefreshAndReport(options)
     local propagateGroupRefresh = true
     local announceBestProgressionKey = false
     local forceBestProgressionKeyAnnouncement = false
+    local announceBestProgressionKeyInGroupChat = false
     if type(options) == "table" and options.propagateGroupRefresh == false then
         propagateGroupRefresh = false
     end
@@ -1117,6 +1260,11 @@ local function RefreshAndReport(options)
     if type(options) == "table" and options.forceBestProgressionKeyAnnouncement == true then
         forceBestProgressionKeyAnnouncement = true
     end
+    if type(options) == "table" and options.announceBestProgressionKeyInGroupChat == true then
+        announceBestProgressionKeyInGroupChat = true
+    end
+
+    initialFrameRefreshPending = false
 
     SnapshotLocalState()
 
@@ -1125,13 +1273,13 @@ local function RefreshAndReport(options)
     if channel == "WHISPER" then
         local playerName = UnitName("player")
         local msg = "KEY_REQ"
-        C_ChatInfo.SendAddonMessage(KeyLottery.prefix, msg, channel, playerName)
+        C_ChatInfo.SendAddonMessage(KeyParty.prefix, msg, channel, playerName)
         SendOwnKeyInfo(channel, playerName)
     else
         if propagateGroupRefresh then
-            C_ChatInfo.SendAddonMessage(KeyLottery.prefix, "REFRESH_REQ", channel)
+            C_ChatInfo.SendAddonMessage(KeyParty.prefix, "REFRESH_REQ", channel)
         end
-        C_ChatInfo.SendAddonMessage(KeyLottery.prefix, "KEY_REQ", channel)
+        C_ChatInfo.SendAddonMessage(KeyParty.prefix, "KEY_REQ", channel)
         SendOwnKeyInfo(channel)
         RequestExternalKeys(channel)
     end
@@ -1144,7 +1292,7 @@ local function RefreshAndReport(options)
 
             if shouldPopulate then
                 local ok, err = pcall(function()
-                    KL_UI:Populate(KeyLottery.members, best)
+                    KL_UI:Populate(KeyParty.members, best)
                 end)
                 if not ok then
                     Print("UI update failed, falling back to chat report.")
@@ -1159,9 +1307,13 @@ local function RefreshAndReport(options)
             PrintRatingsReport()
         end
         if announceBestProgressionKey or forceBestProgressionKeyAnnouncement then
-            PrintBestProgressionKeyAnnouncement(best, forceBestProgressionKeyAnnouncement)
+            PrintBestProgressionKeyAnnouncement(
+                best,
+                forceBestProgressionKeyAnnouncement,
+                announceBestProgressionKeyInGroupChat
+            )
         end
-        KeyLottery.lastReportTime = GetServerTime()
+        KeyParty.lastReportTime = GetServerTime()
     end)
 end
 
@@ -1176,7 +1328,7 @@ local function HandleRemoteRefreshRequest(channel, sender)
 
     if KL_UI and KL_UI.frame and KL_UI.frame:IsShown() then
         local best = BestProgressionKey()
-        KL_UI:Populate(KeyLottery.members, best)
+        KL_UI:Populate(KeyParty.members, best)
     end
 end
 
@@ -1200,6 +1352,7 @@ local function SchedulePostDungeonAutoRefresh()
             local finalOptions = {
                 passive = refreshOptions.passive,
                 announceBestProgressionKey = true,
+                announceBestProgressionKeyInGroupChat = IsPartyChatAnnouncementAtDungeonEndEnabled(),
             }
             RefreshAndReport(finalOptions)
         end
@@ -1267,8 +1420,8 @@ local function PrintApiDump()
     end
 
     local serialized = SerializeTable(summary, "", 0, {})
-    KeyLotteryDB.apiDump = serialized
-    KeyLotteryDB.apiDumpTime = date("%Y-%m-%d %H:%M:%S")
+    KeyPartyDB.apiDump = serialized
+    KeyPartyDB.apiDumpTime = date("%Y-%m-%d %H:%M:%S")
 
     Print("API dump saved to SavedVariables. Do /reload now, then open:")
     Print("  WTF/Account/<name>/SavedVariables/KeyParty.lua")
@@ -1276,11 +1429,11 @@ local function PrintApiDump()
 end
 
 local function PrintDebugReport()
-    KeyLottery.members = {}
+    KeyParty.members = {}
     SnapshotGroupRatings()
 
     local names = {}
-    for name in pairs(KeyLottery.members) do
+    for name in pairs(KeyParty.members) do
         names[#names + 1] = name
     end
     table.sort(names)
@@ -1294,7 +1447,7 @@ local function PrintDebugReport()
     end
 
     for _, name in ipairs(names) do
-        local member = KeyLottery.members[name]
+        local member = KeyParty.members[name]
         local scoreCount = CountEntries(member.dungeonScores)
         Print(string.format("- %s: total=%.1f, dungeonScores=%d", name, member.totalRating or 0, scoreCount))
 
@@ -1345,7 +1498,7 @@ local function PrintAddonPresenceDebug()
 end
 
 local function HandleAddonMessage(prefix, message, channel, sender)
-    if prefix ~= KeyLottery.prefix or not message then
+    if not (prefix == KeyParty.prefix or prefix == KeyParty.legacyPrefix) or not message then
         return
     end
 
@@ -1359,7 +1512,7 @@ local function HandleAddonMessage(prefix, message, channel, sender)
 
     if message == "PING_REQ" then
         if sender and sender ~= "" and senderName ~= selfName then
-            C_ChatInfo.SendAddonMessage(KeyLottery.prefix, "PING_ACK", "WHISPER", sender)
+            C_ChatInfo.SendAddonMessage(KeyParty.prefix, "PING_ACK", "WHISPER", sender)
         end
         return
     end
@@ -1372,6 +1525,17 @@ local function HandleAddonMessage(prefix, message, channel, sender)
         if senderName ~= selfName then
             HandleRemoteRefreshRequest(channel, sender)
         end
+        return
+    end
+
+    if message == "VERSION_REQ" then
+        local replyTarget = nil
+        local replyChannel = channel
+        if sender and sender ~= "" then
+            replyChannel = "WHISPER"
+            replyTarget = sender
+        end
+        SendAddonVersion(replyChannel, replyTarget)
         return
     end
 
@@ -1388,6 +1552,12 @@ local function HandleAddonMessage(prefix, message, channel, sender)
     end
 
     local tag, mapID, level, rating = strsplit("|", message)
+    if tag == "VERSION_ACK" then
+        local remoteVersion = tostring(mapID or "0.0.0")
+        MaybeNotifyOutdatedAddonVersion(remoteVersion, senderName)
+        return
+    end
+
     if tag == "KEY" then
         local mapIDNum = tonumber(mapID) or 0
         local levelNum = tonumber(level) or 0
@@ -1414,7 +1584,7 @@ local function HandleSlash(msg)
     if cmd == "" then
         -- Toggle frame; if no data yet, also refresh
         if KL_UI then
-            if not KL_UI.frame:IsShown() and next(KeyLottery.members) == nil then
+            if not KL_UI.frame:IsShown() and next(KeyParty.members) == nil then
                 RefreshAndReport()
             else
                 KL_UI:Toggle()
@@ -1536,7 +1706,7 @@ local function HandleSlash(msg)
         end
 
         NormalizePortalSpellMap()
-        KeyLotteryDB.portalSpellByMap[mapID] = spellID
+        KeyPartyDB.portalSpellByMap[mapID] = spellID
         local known = IsSpellKnownByID(spellID)
         Print(string.format(
             "Portal mapping saved: %s (%d) -> spell %d%s",
@@ -1548,11 +1718,11 @@ local function HandleSlash(msg)
     Print("Usage: /kp [refresh|report]")
 end
 
-SLASH_KEYLOTTERY1 = "/keyparty"
-SLASH_KEYLOTTERY2 = "/kp"
-SlashCmdList.KEYLOTTERY = HandleSlash
+SLASH_KEYPARTY1 = "/keyparty"
+SLASH_KEYPARTY2 = "/kp"
+SlashCmdList.KEYPARTY = HandleSlash
 
-KeyLottery:SetScript("OnEvent", function(_, event, ...)
+KeyParty:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" then
         local addon = ...
         if addon ~= ADDON_NAME then
@@ -1562,18 +1732,34 @@ KeyLottery:SetScript("OnEvent", function(_, event, ...)
         NormalizePortalSpellMap()
         SeedDefaultPortalMappings()
         MarkAddonPresence(SafeName("player"))
-        if KeyLotteryDB.autoOpenAtDungeonEnd == nil then
-            KeyLotteryDB.autoOpenAtDungeonEnd = false
+        if KeyPartyDB.autoOpenAtDungeonEnd == nil then
+            KeyPartyDB.autoOpenAtDungeonEnd = false
+        end
+        if KeyPartyDB.partyChatAnnouncementAtDungeonEnd == nil then
+            KeyPartyDB.partyChatAnnouncementAtDungeonEnd = false
         end
 
-        C_ChatInfo.RegisterAddonMessagePrefix(KeyLottery.prefix)
+        C_ChatInfo.RegisterAddonMessagePrefix(KeyParty.prefix)
+        C_ChatInfo.RegisterAddonMessagePrefix(KeyParty.legacyPrefix)
         if KL_UI then
             KL_UI.OnRefresh = RefreshAndReport
+            KL_UI.ShouldRefreshOnShow = function()
+                return initialFrameRefreshPending
+            end
+            KL_UI.OnRefreshOnShow = function()
+                RefreshAndReport({ passive = true })
+            end
             KL_UI.OnToggleAutoOpenAtDungeonEnd = function(enabled)
                 SetAutoOpenAtDungeonEndEnabled(enabled)
             end
+            KL_UI.OnTogglePartyChatAnnouncementAtDungeonEnd = function(enabled)
+                SetPartyChatAnnouncementAtDungeonEndEnabled(enabled)
+            end
             if KL_UI.SetAutoOpenAtDungeonEndChecked then
                 KL_UI:SetAutoOpenAtDungeonEndChecked(IsAutoOpenAtDungeonEndEnabled())
+            end
+            if KL_UI.SetPartyChatAnnouncementAtDungeonEndChecked then
+                KL_UI:SetPartyChatAnnouncementAtDungeonEndChecked(IsPartyChatAnnouncementAtDungeonEndEnabled())
             end
         end
         Print("loaded. Use /kp to open the panel.")
@@ -1595,7 +1781,7 @@ KeyLottery:SetScript("OnEvent", function(_, event, ...)
         local message, sender = ...
         if TryParseExternalKeyMessage(message, sender) and KL_UI and KL_UI.frame:IsShown() then
             local best = BestProgressionKey()
-            KL_UI:Populate(KeyLottery.members, best)
+            KL_UI:Populate(KeyParty.members, best)
         end
         return
     end
@@ -1611,11 +1797,11 @@ KeyLottery:SetScript("OnEvent", function(_, event, ...)
     end
 end)
 
-KeyLottery:RegisterEvent("ADDON_LOADED")
-KeyLottery:RegisterEvent("CHAT_MSG_ADDON")
-KeyLottery:RegisterEvent("INSPECT_READY")
-KeyLottery:RegisterEvent("CHAT_MSG_PARTY")
-KeyLottery:RegisterEvent("CHAT_MSG_RAID")
-KeyLottery:RegisterEvent("CHAT_MSG_INSTANCE_CHAT")
-KeyLottery:RegisterEvent("GROUP_ROSTER_UPDATE")
-KeyLottery:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+KeyParty:RegisterEvent("ADDON_LOADED")
+KeyParty:RegisterEvent("CHAT_MSG_ADDON")
+KeyParty:RegisterEvent("INSPECT_READY")
+KeyParty:RegisterEvent("CHAT_MSG_PARTY")
+KeyParty:RegisterEvent("CHAT_MSG_RAID")
+KeyParty:RegisterEvent("CHAT_MSG_INSTANCE_CHAT")
+KeyParty:RegisterEvent("GROUP_ROSTER_UPDATE")
+KeyParty:RegisterEvent("CHALLENGE_MODE_COMPLETED")
