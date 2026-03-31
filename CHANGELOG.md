@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.3.1] - 2026-03-31
+
+### Fixed
+- Close and refresh header buttons are now always visible when the frame is shown.
+- Close and refresh buttons are now properly stored as frame references for consistent access.
+- Added explicit Show() calls to ensure header buttons display immediately after frame creation and on every population update.
+
 ## [1.3.0] - 2026-03-30
 
 ### Changed
