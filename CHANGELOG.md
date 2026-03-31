@@ -2,12 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
-## [1.3.1] - 2026-03-31
+## [1.3.2] - 2026-03-31
 
 ### Fixed
-- Close and refresh header buttons are now always visible when the frame is shown.
-- Close and refresh buttons are now properly stored as frame references for consistent access.
-- Added explicit Show() calls to ensure header buttons display immediately after frame creation and on every population update.
+- Hardened inspect queue handling so Key Party no longer interrupts manual player inspection in the default Inspect window.
+- `INSPECT_READY` is now ignored unless it matches the addon's active inspect request GUID.
+- Added timeout cleanup for stale inspect requests to prevent inspect flow from getting stuck.
+- `ClearInspectPlayer()` is no longer called while the default Inspect frame is visible.
+- Disabled background `NotifyInspect` requests by default as a fail-safe to prevent all remaining conflicts with manual inspect gear/ilvl views.
+
+### Changed
+- Clarified release notes around manual inspect compatibility: background addon inspect requests are intentionally disabled by default to avoid interfering with Blizzard inspect gear and item-level views.
 
 ## [1.3.0] - 2026-03-30
 

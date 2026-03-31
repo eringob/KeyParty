@@ -65,6 +65,8 @@ local inspectQueue = {}
 local inspectQueuedByGUID = {}
 local inspectMetaByGUID = {}
 local inspectInFlightGUID = nil
+local inspectInFlightStartedAt = 0
+local ENABLE_BACKGROUND_INSPECT = false
 local postDungeonRefreshSerial = 0
 local addonPresenceByName = {}
 local addonPresenceProbeToken = 0
@@ -931,6 +933,10 @@ local function ReadUnitRating(unit)
 end
 
 local function EnqueueInspectForUnit(unit, name)
+    if not ENABLE_BACKGROUND_INSPECT then
+        return
+    end
+
     if not unit or not UnitExists(unit) then
         return
     end
@@ -955,7 +961,24 @@ local function EnqueueInspectForUnit(unit, name)
 end
 
 local function ProcessInspectQueue()
-    if inspectInFlightGUID or #inspectQueue == 0 then
+    if #inspectQueue == 0 then
+        return
+    end
+
+    if inspectInFlightGUID then
+        if inspectInFlightStartedAt > 0 and (GetTime() - inspectInFlightStartedAt) >= 1.5 then
+            inspectQueuedByGUID[inspectInFlightGUID] = nil
+            inspectMetaByGUID[inspectInFlightGUID] = nil
+            inspectInFlightGUID = nil
+            inspectInFlightStartedAt = 0
+        else
+            return
+        end
+    end
+
+    local inspectFrame = rawget(_G, "InspectFrame")
+    if inspectFrame and inspectFrame.IsShown and inspectFrame:IsShown() then
+        C_Timer.After(0.20, ProcessInspectQueue)
         return
     end
 
@@ -969,20 +992,24 @@ local function ProcessInspectQueue()
     end
 
     inspectInFlightGUID = guid
+    inspectInFlightStartedAt = GetTime()
     NotifyInspect(meta.unit)
 end
 
 local function HandleInspectReady(guid)
-    if not guid then
+    if not guid or guid ~= inspectInFlightGUID then
         return
     end
 
     local meta = inspectMetaByGUID[guid]
     if not meta then
-        if inspectInFlightGUID == guid then
-            inspectInFlightGUID = nil
+        inspectInFlightGUID = nil
+        inspectInFlightStartedAt = 0
+
+        local inspectFrame = rawget(_G, "InspectFrame")
+        if not (inspectFrame and inspectFrame.IsShown and inspectFrame:IsShown()) then
+            ClearInspectPlayer()
         end
-        ClearInspectPlayer()
         C_Timer.After(0.05, ProcessInspectQueue)
         return
     end
@@ -1021,11 +1048,13 @@ local function HandleInspectReady(guid)
 
     inspectQueuedByGUID[guid] = nil
     inspectMetaByGUID[guid] = nil
-    if inspectInFlightGUID == guid then
-        inspectInFlightGUID = nil
-    end
+    inspectInFlightGUID = nil
+    inspectInFlightStartedAt = 0
 
-    ClearInspectPlayer()
+    local inspectFrame = rawget(_G, "InspectFrame")
+    if not (inspectFrame and inspectFrame.IsShown and inspectFrame:IsShown()) then
+        ClearInspectPlayer()
+    end
     RefreshUIIfVisible()
     C_Timer.After(0.08, ProcessInspectQueue)
 end
