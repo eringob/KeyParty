@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.3.6] - 2026-04-01
+
+### Fixed
+- Made the header `Close` and `Refresh` buttons render reliably by anchoring them to the title bar and giving them explicit button chrome and frame layering, so they no longer disappear behind the banner artwork.
+
+## [1.3.5] - 2-26-03-31
+
+### Changed
+- Clarified release notes around manual inspect compatibility: background addon inspect requests are intentionally disabled by default to avoid interfering with Blizzard inspect gear and item-level views.
+
 ## [1.3.2] - 2026-03-31
 
 ### Fixed
@@ -10,9 +20,6 @@ All notable changes to this project are documented in this file.
 - Added timeout cleanup for stale inspect requests to prevent inspect flow from getting stuck.
 - `ClearInspectPlayer()` is no longer called while the default Inspect frame is visible.
 - Disabled background `NotifyInspect` requests by default as a fail-safe to prevent all remaining conflicts with manual inspect gear/ilvl views.
-
-### Changed
-- Clarified release notes around manual inspect compatibility: background addon inspect requests are intentionally disabled by default to avoid interfering with Blizzard inspect gear and item-level views.
 
 ## [1.3.0] - 2026-03-30
 
