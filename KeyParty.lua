@@ -1277,11 +1277,15 @@ end
 local function RefreshAndReport(options)
     local passive = (type(options) == "table" and options.passive) and true or false
     local propagateGroupRefresh = true
+    local requestExternalKeys = true
     local announceBestProgressionKey = false
     local forceBestProgressionKeyAnnouncement = false
     local announceBestProgressionKeyInGroupChat = false
     if type(options) == "table" and options.propagateGroupRefresh == false then
         propagateGroupRefresh = false
+    end
+    if type(options) == "table" and options.requestExternalKeys == false then
+        requestExternalKeys = false
     end
     if type(options) == "table" and options.announceBestProgressionKey == true then
         announceBestProgressionKey = true
@@ -1310,7 +1314,9 @@ local function RefreshAndReport(options)
         end
         C_ChatInfo.SendAddonMessage(KeyParty.prefix, "KEY_REQ", channel)
         SendOwnKeyInfo(channel)
-        RequestExternalKeys(channel)
+        if requestExternalKeys then
+            RequestExternalKeys(channel)
+        end
     end
 
     C_Timer.After(2.0, function()
@@ -1367,6 +1373,7 @@ local function SchedulePostDungeonAutoRefresh()
     local shouldAutoOpen = IsAutoOpenAtDungeonEndEnabled()
     local refreshOptions = {
         passive = not shouldAutoOpen,
+        requestExternalKeys = false,
     }
 
     -- Run twice to catch delayed API updates right after end-of-run screens.
@@ -1378,10 +1385,12 @@ local function SchedulePostDungeonAutoRefresh()
 
     C_Timer.After(14.0, function()
         if serial == postDungeonRefreshSerial then
+            local shouldAnnounceInGroupChat = IsPartyChatAnnouncementAtDungeonEndEnabled()
             local finalOptions = {
                 passive = refreshOptions.passive,
+                requestExternalKeys = shouldAnnounceInGroupChat,
                 announceBestProgressionKey = true,
-                announceBestProgressionKeyInGroupChat = IsPartyChatAnnouncementAtDungeonEndEnabled(),
+                announceBestProgressionKeyInGroupChat = shouldAnnounceInGroupChat,
             }
             RefreshAndReport(finalOptions)
         end

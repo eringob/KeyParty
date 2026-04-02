@@ -30,7 +30,8 @@ local YOUR_SCORES_ICON_COUNT = 8
 local PARTY_KEYSTONE_ICON_COUNT = 5
 local KEY_AREA_COLUMN_COUNT = 6
 local BEST_KEY_ICON_SIZE = 74
-local WEEKLY_AFFIX_LEVEL_LABELS = { "+4", "+7", "+10", "+12" }
+local WEEKLY_AFFIX_LEVEL_LABELS = { "+2", "+4", "+7", "+10", "+12" }
+local WEEKLY_AFFIX_COUNT = #WEEKLY_AFFIX_LEVEL_LABELS
 local OPTION_CHECKBOX_SCALE = 0.72
 local STATUS_TEXT_BOTTOM_OFFSET = 48
 local AUTO_OPEN_OPTION_BOTTOM_OFFSET = 28
@@ -773,12 +774,13 @@ local function BuildFrame()
     weeklyAffixSlot:Hide()
 
     local weeklyAffixIcons = {}
-    local affixCellSize = math.floor((BEST_KEY_ICON_SIZE - 6) / 2)
+    local affixCellSize = math.floor((BEST_KEY_ICON_SIZE - 8) / 3)
     local affixOffsets = {
         { x = 0, y = 0 },
         { x = affixCellSize + 2, y = 0 },
-        { x = 0, y = -(affixCellSize + 2) },
-        { x = affixCellSize + 2, y = -(affixCellSize + 2) },
+        { x = (affixCellSize + 2) * 2, y = 0 },
+        { x = math.floor((affixCellSize + 2) / 2), y = -(affixCellSize + 2) },
+        { x = math.floor((affixCellSize + 2) / 2) + affixCellSize + 2, y = -(affixCellSize + 2) },
     }
     for idx, pos in ipairs(affixOffsets) do
         local icon = weeklyAffixSlot:CreateTexture(nil, "ARTWORK")
@@ -1285,7 +1287,7 @@ function KL_UI:Populate(members, best)
         f.weeklyAffixSlot:SetWidth(slotW)
         f.weeklyAffixSlot:Show()
 
-        for idx = 1, 4 do
+        for idx = 1, WEEKLY_AFFIX_COUNT do
             local cell = f.weeklyAffixIcons[idx]
             local affix = currentAffixes[idx]
             if affix then

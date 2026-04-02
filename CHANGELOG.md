@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+### [1.3.7] - 2026-04-02
+
+### Changed
+- End-of-dungeon refresh no longer sends `!keys` when the `Party chat announcement` option is disabled.
+- Weekly affix icons now use the correct Mythic+ activation levels and show the fifth affix at `+12`.
+
+## [1.3.6.1] - 2026-04-02
+
+### Fixed
+- Restored the version in KeyParty.toc
+
 ## [1.3.6] - 2026-04-01
 
 ### Fixed
