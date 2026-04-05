@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+### [1.3.10] - 2026-04-05
+
+### Added
+- GROUP RATINGS now shows a third column with the best completed dungeon per player: the dungeon icon, the abbreviation used in YOUR SCORES, and the key level. The level is shown in white when the run was timed, and dimmed/transparent when depleted.
+
 ### [1.3.9] - 2026-04-05
 
 ### Fixed

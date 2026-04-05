@@ -12,6 +12,7 @@ local ROW_H     = 18     -- pixels per member row
 local MAX_ROWS  = 25     -- pool size per section (handles raids)
 local COL_NAME_X  = 14
 local COL_VALUE_X = 400
+local COL_BEST_X  = 455   -- best-dungeon icon+abbr column in GROUP RATINGS
 local TITLE_BANNER_PATH = "Interface\\AddOns\\KeyParty\\media\\title-banner"
 local TITLE_ICON_FALLBACK = 134419
 local TITLE_BANNER_SOURCE_W = 1536
@@ -61,6 +62,23 @@ local function ColoredRating(rating)
     return string.format("|cff%02x%02x%02x%d|r",
         math.floor(r * 255), math.floor(g * 255), math.floor(b * 255),
         math.floor(rating or 0))
+end
+
+local function GetBestDungeonMapID(member)
+    local levels = member and member.dungeonLevels or {}
+    local scores = member and member.dungeonScores or {}
+    local bestMapID = nil
+    local bestLevel = 0
+    local bestScore = 0
+    for mapID, level in pairs(levels) do
+        local score = tonumber(scores[mapID]) or 0
+        if level > bestLevel or (level == bestLevel and score > bestScore) then
+            bestLevel = level
+            bestScore = score
+            bestMapID = mapID
+        end
+    end
+    return bestMapID
 end
 
 local function InstanceScoreColor(score)
@@ -703,7 +721,18 @@ local function BuildFrame()
         right:SetJustifyH("LEFT")
         right:Hide()
 
-        f._ratingRows[i] = { name = left, value = right }
+        local bestAbbr = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        bestAbbr:SetPoint("TOPLEFT", f, "TOPLEFT", COL_BEST_X, y)
+        bestAbbr:SetJustifyH("LEFT")
+        bestAbbr:SetTextColor(0.85, 0.85, 0.90, 1)
+        bestAbbr:Hide()
+
+        local bestLevel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        bestLevel:SetPoint("TOPLEFT", f, "TOPLEFT", COL_BEST_X + 40, y)
+        bestLevel:SetJustifyH("LEFT")
+        bestLevel:Hide()
+
+        f._ratingRows[i] = { name = left, value = right, bestAbbr = bestAbbr, bestLevel = bestLevel }
     end
 
     Separator(f, Y_SEP1)
@@ -1170,6 +1199,8 @@ function KL_UI:Populate(members, best)
     for i = 1, MAX_ROWS do
         rows[i].name:Hide()
         rows[i].value:Hide()
+        rows[i].bestAbbr:Hide()
+        rows[i].bestLevel:Hide()
     end
     for i = 1, PARTY_KEYSTONE_ICON_COUNT do
         keySlots[i]:Hide()
@@ -1213,6 +1244,26 @@ function KL_UI:Populate(members, best)
         rows[i].value:SetText(ColoredRating(rat))
         rows[i].name:Show()
         rows[i].value:Show()
+
+        -- Best completed dungeon column
+        local bestMapID = GetBestDungeonMapID(m)
+        if bestMapID then
+            local dungeonName = C_ChallengeMode and C_ChallengeMode.GetMapUIInfo and
+                                C_ChallengeMode.GetMapUIInfo(bestMapID) or nil
+            local level  = ((m.dungeonLevels or {})[bestMapID] or 0)
+            local isTimed = (m.dungeonTimed or {})[bestMapID]
+            rows[i].bestAbbr:SetText(AbbreviateDungeonName(dungeonName or ""))
+            rows[i].bestAbbr:Show()
+            if level > 0 then
+                rows[i].bestLevel:SetText("+" .. level)
+                if isTimed then
+                    rows[i].bestLevel:SetTextColor(1, 1, 1, 1)
+                else
+                    rows[i].bestLevel:SetTextColor(0.75, 0.75, 0.75, 0.35)
+                end
+                rows[i].bestLevel:Show()
+            end
+        end
     end
 
     -- Party keystone icons (horizontal)

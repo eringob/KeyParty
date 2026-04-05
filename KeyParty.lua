@@ -763,6 +763,7 @@ EnsureMember = function(name)
             totalRating = 0,
             dungeonScores = {},
             dungeonLevels = {},
+            dungeonTimed  = {},
             key = nil,
         }
     end
@@ -773,9 +774,10 @@ local function ParseRatingSummary(summary)
     local totalRating = 0
     local scores = {}
     local levels = {}
+    local timed  = {}
 
     if not summary then
-        return totalRating, scores, levels
+        return totalRating, scores, levels, timed
     end
 
     -- Confirmed field names from API dump (TWW / patch 11.x):
@@ -783,6 +785,7 @@ local function ParseRatingSummary(summary)
     --   summary.runs[i].challengeModeID -> dungeon ID
     --   summary.runs[i].mapScore        -> dungeon score
     --   summary.runs[i].bestRunLevel    -> highest key level completed
+    --   summary.runs[i].finishedSuccess -> true when best run was timed
     totalRating = tonumber(summary.currentSeasonScore) or 0
 
     if type(summary.runs) == "table" then
@@ -801,13 +804,14 @@ local function ParseRatingSummary(summary)
                     local prevLevel = levels[mapID] or 0
                     if level > prevLevel then
                         levels[mapID] = level
+                        timed[mapID]  = run.finishedSuccess == true
                     end
                 end
             end
         end
     end
 
-    return totalRating, scores, levels
+    return totalRating, scores, levels, timed
 end
 
 local function ParseRaiderIOProfile(profile)
@@ -1017,14 +1021,15 @@ local function HandleInspectReady(guid)
     local totalRating = 0
     local dungeonScores = {}
     local dungeonLevels = {}
+    local dungeonTimed  = {}
 
     if meta.unit and UnitExists(meta.unit) then
-        totalRating, dungeonScores, dungeonLevels = ReadUnitRating(meta.unit)
+        totalRating, dungeonScores, dungeonLevels, dungeonTimed = ReadUnitRating(meta.unit)
     end
 
     if totalRating <= 0 then
         local summaryByName = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(meta.name)
-        totalRating, dungeonScores, dungeonLevels = ParseRatingSummary(summaryByName)
+        totalRating, dungeonScores, dungeonLevels, dungeonTimed = ParseRatingSummary(summaryByName)
     end
 
     if totalRating <= 0 then
@@ -1044,6 +1049,9 @@ local function HandleInspectReady(guid)
     end
     if next(dungeonLevels) then
         member.dungeonLevels = dungeonLevels
+    end
+    if next(dungeonTimed) then
+        member.dungeonTimed = dungeonTimed
     end
 
     inspectQueuedByGUID[guid] = nil
@@ -1212,10 +1220,11 @@ local function SnapshotGroupRatings()
             if classToken and classToken ~= "" then
                 member.classToken = classToken
             end
-            local totalRating, dungeonScores, dungeonLevels = ReadUnitRating(unit)
+            local totalRating, dungeonScores, dungeonLevels, dungeonTimed = ReadUnitRating(unit)
             member.totalRating = totalRating
             member.dungeonScores = dungeonScores or {}
             member.dungeonLevels = dungeonLevels or {}
+            member.dungeonTimed  = dungeonTimed  or {}
 
             if totalRating <= 0 then
                 local rioRating, rioKey = TryReadRaiderIOForUnit(unit)
