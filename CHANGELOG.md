@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+### [1.3.9] - 2026-04-05
+
+### Fixed
+- Close and Refresh buttons are now parented to the title bar frame instead of the main frame, so they always render above the banner artwork.
+
+### Changed
+- YOUR SCORES icons are now sorted from lowest score to highest, re-evaluated on every data refresh. Ties are broken alphabetically.
+
+### [1.3.8] - 2026-04-05
+
+### Changed
+- YOUR SCORES icons are now sorted from lowest score to highest.
+
 ### [1.3.7] - 2026-04-02
 
 ### Changed

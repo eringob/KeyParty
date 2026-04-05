@@ -1315,11 +1315,17 @@ function KL_UI:Populate(members, best)
         end
     end
 
-    -- Your scores row (8 dungeons from current season list)
+    -- Your scores row (8 dungeons, sorted low → high score; re-sorted on every Populate call)
     local playerMember = FindPlayerMember()
     local playerScores = (playerMember and playerMember.dungeonScores) or {}
     local playerLevels = (playerMember and playerMember.dungeonLevels) or {}
     local dungeons = GetDisplayedSeasonDungeons()
+    table.sort(dungeons, function(a, b)
+        local sa = tonumber(playerScores[a.mapID]) or 0
+        local sb = tonumber(playerScores[b.mapID]) or 0
+        if sa ~= sb then return sa < sb end
+        return strlower(a.name or "") < strlower(b.name or "")
+    end)
 
     for i = 1, YOUR_SCORES_ICON_COUNT do
         local slot = f._scoreSlots[i]
