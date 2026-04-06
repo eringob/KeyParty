@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+### [1.4.0] - 2026-04-06
+
+### Fixed
+- The main UI title banner now preserves the source artwork aspect ratio, preventing the header image from appearing squashed or stretched.
+- The frame height is now derived from the banner height so the header scales cleanly without clipping the rest of the layout.
+
+### Changed
+- Updated the bundled `media/title-banner` artwork to match the new header proportions.
+
 ### [1.3.10] - 2026-04-05
 
 ### Added

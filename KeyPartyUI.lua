@@ -7,7 +7,6 @@ _G.KL_UI = KL_UI
 -- ── Constants ─────────────────────────────────────────────────────────────────
 
 local FRAME_W   = 620
-local FRAME_H   = 780
 local ROW_H     = 18     -- pixels per member row
 local MAX_ROWS  = 25     -- pool size per section (handles raids)
 local COL_NAME_X  = 14
@@ -16,8 +15,10 @@ local COL_BEST_X  = 455   -- best-dungeon icon+abbr column in GROUP RATINGS
 local TITLE_BANNER_PATH = "Interface\\AddOns\\KeyParty\\media\\title-banner"
 local TITLE_ICON_FALLBACK = 134419
 local TITLE_BANNER_SOURCE_W = 1536
-local TITLE_BANNER_SOURCE_H = 483
+local TITLE_BANNER_SOURCE_H = 694
 local TITLE_BAR_H = math.floor((FRAME_W * TITLE_BANNER_SOURCE_H) / TITLE_BANNER_SOURCE_W + 0.5)
+local FRAME_BODY_H = 585
+local FRAME_H = FRAME_BODY_H + TITLE_BAR_H
 local HEADER_ICON_BUTTON_W = 28
 local HEADER_ICON_BUTTON_H = 22
 local HEADER_ICON_SIZE = 14
@@ -707,6 +708,12 @@ local function BuildFrame()
 
     -- ── GROUP RATINGS section ─────────────────────────────────────────────────
     SectionLabel(f, Y_RATING_LABEL, "|cffFFD100GROUP RATINGS|r")
+
+    local highestKeyRunHeader = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    highestKeyRunHeader:SetPoint("TOPLEFT", f, "TOPLEFT", COL_BEST_X, Y_RATING_LABEL)
+    highestKeyRunHeader:SetJustifyH("LEFT")
+    highestKeyRunHeader:SetTextColor(1.0, 0.82, 0.0, 1)
+    highestKeyRunHeader:SetText("HIGHEST KEY RUN")
 
     f._ratingRows = {}
     for i = 1, MAX_ROWS do
