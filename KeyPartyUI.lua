@@ -12,18 +12,43 @@ local MAX_ROWS  = 25     -- pool size per section (handles raids)
 local COL_NAME_X  = 14
 local COL_VALUE_X = 400
 local COL_BEST_X  = 455   -- best-dungeon icon+abbr column in GROUP RATINGS
-local TITLE_BANNER_PATH = "Interface\\AddOns\\KeyParty\\media\\title-banner"
+local TITLE_BANNER_PATH = "Interface\\AddOns\\KeyParty\\media\\title-banner.png"
 local TITLE_ICON_FALLBACK = 134419
-local TITLE_BANNER_SOURCE_W = 1536
-local TITLE_BANNER_SOURCE_H = 694
-local TITLE_BAR_H = math.floor((FRAME_W * TITLE_BANNER_SOURCE_H) / TITLE_BANNER_SOURCE_W + 0.5)
+local TITLE_BANNER_FALLBACK_W = 1418
+local TITLE_BANNER_FALLBACK_H = 389
+local function GetBannerSourceDimensions()
+    local w = TITLE_BANNER_FALLBACK_W
+    local h = TITLE_BANNER_FALLBACK_H
+
+    local getTextureFileDimensions = rawget(_G, "GetTextureFileDimensions")
+    if type(getTextureFileDimensions) == "function" then
+        local ok, fileW, fileH = pcall(getTextureFileDimensions, TITLE_BANNER_PATH)
+        fileW = tonumber(fileW)
+        fileH = tonumber(fileH)
+        if ok and fileW and fileH and fileW > 0 and fileH > 0 then
+            w = fileW
+            h = fileH
+        end
+    end
+
+    return w, h
+end
+local TITLE_BANNER_SOURCE_W, TITLE_BANNER_SOURCE_H = GetBannerSourceDimensions()
 local FRAME_BODY_H = 585
-local FRAME_H = FRAME_BODY_H + TITLE_BAR_H
 local HEADER_ICON_BUTTON_W = 28
 local HEADER_ICON_BUTTON_H = 22
 local HEADER_ICON_SIZE = 14
 local HEADER_ICON_BUTTON_MARGIN = 4
 local HEADER_ICON_BUTTON_GAP = 2
+local TITLE_CONTROL_STRIP_H = HEADER_ICON_BUTTON_H + (HEADER_ICON_BUTTON_MARGIN * 2)
+local TITLE_BANNER_H = math.floor((FRAME_W * TITLE_BANNER_SOURCE_H) / TITLE_BANNER_SOURCE_W + 0.5)
+local TITLE_BAR_H = TITLE_CONTROL_STRIP_H + TITLE_BANNER_H
+local FRAME_H = FRAME_BODY_H + TITLE_BAR_H
+local FRAME_SCALE_DEFAULT = 1.0
+local FRAME_SCALE_MIN     = 0.5
+local FRAME_SCALE_MAX     = 2.0
+local FRAME_SCALE_STEP    = 0.1
+local RESIZE_GRIP_TEXTURE = "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up"
 local CLOSE_ICON_TEXTURE = "Interface\\Buttons\\UI-GroupLoot-Pass-Up"
 local REFRESH_ICON_ATLAS = "transmog-icon-revert"
 local EMPTY_ICON_TEXTURE = 134400
@@ -35,8 +60,8 @@ local BEST_KEY_ICON_SIZE = 74
 local WEEKLY_AFFIX_LEVEL_LABELS = { "+2", "+4", "+7", "+10", "+12" }
 local WEEKLY_AFFIX_COUNT = #WEEKLY_AFFIX_LEVEL_LABELS
 local OPTION_CHECKBOX_SCALE = 0.72
-local STATUS_TEXT_BOTTOM_OFFSET = 48
-local AUTO_OPEN_OPTION_BOTTOM_OFFSET = 28
+local STATUS_TEXT_BOTTOM_OFFSET = 58
+local AUTO_OPEN_OPTION_BOTTOM_OFFSET = 36
 local PARTY_CHAT_OPTION_BOTTOM_OFFSET = 8
 
 -- Raider.io-style rating colour thresholds
@@ -445,9 +470,15 @@ local function GetSpellCooldownData(spellID)
     if C_Spell and C_Spell.GetSpellCooldown then
         local info = C_Spell.GetSpellCooldown(spellID)
         if type(info) == "table" then
+            local enabledValue = 0
+            if type(info.isEnabled) == "boolean" then
+                enabledValue = info.isEnabled and 1 or 0
+            else
+                enabledValue = tonumber(info.isEnabled) or 0
+            end
             return tonumber(info.startTime) or 0,
                    tonumber(info.duration) or 0,
-                   tonumber(info.isEnabled) or 0,
+                   enabledValue,
                    tonumber(info.modRate) or 1
         end
 
@@ -499,6 +530,25 @@ local function ApplySpellCooldown(cooldown, spellID, debugEndTime, debugDuration
     cooldown:SetCooldown(startTime, duration, modRate or 1)
 end
 
+local function GetSharedTeleportCooldown(spellIDs)
+    if type(spellIDs) ~= "table" then
+        return nil
+    end
+
+    for _, spellID in ipairs(spellIDs) do
+        local startTime, duration, isEnabled, modRate = GetSpellCooldownData(spellID)
+        if isEnabled ~= 0 and startTime > 0 and duration > 1.5 then
+            return {
+                startTime = startTime,
+                duration = duration,
+                modRate = modRate or 1,
+            }
+        end
+    end
+
+    return nil
+end
+
 local function GetGroupPlayerNames()
     local names = {}
 
@@ -539,9 +589,24 @@ end
 
 local function GetSeasonDungeons()
     local result = {}
-    local mapTable = C_ChallengeMode.GetMapTable() or {}
     local seen = {}
 
+    -- Primary source: explicit entries from KeyPartySeasonData.lua.
+    local seasonData = (type(KeyParty_SeasonDungeons) == "table" and KeyParty_SeasonDungeons) or {}
+    for _, entry in ipairs(seasonData) do
+        local mapID = tonumber(entry.mapID)
+        if mapID and mapID > 0 and not seen[mapID] then
+            seen[mapID] = true
+            local apiName = C_ChallengeMode.GetMapUIInfo(mapID)
+            result[#result + 1] = {
+                mapID = mapID,
+                name = (apiName and apiName ~= "") and apiName or (entry.name or ("Map " .. tostring(mapID))),
+            }
+        end
+    end
+
+    -- Fallback: any additional maps known to the API but not in season data.
+    local mapTable = C_ChallengeMode.GetMapTable() or {}
     for _, mapID in ipairs(mapTable) do
         if not seen[mapID] then
             seen[mapID] = true
@@ -652,7 +717,15 @@ local function BuildFrame()
     f:SetMovable(true)
     f:EnableMouse(true)
     f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStart", function(frame)
+        if InCombatLockdown and InCombatLockdown() then
+            if DEFAULT_CHAT_FRAME then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff00ff98Key Party|r: cannot move the window while in combat.")
+            end
+            return
+        end
+        frame:StartMoving()
+    end)
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
     f:SetFrameStrata("DIALOG")
     f:Hide()
@@ -666,26 +739,65 @@ local function BuildFrame()
     ApplyBackdrop(titleBar, 0.04, 0.04, 0.06, 1, 0.38, 0.38, 0.48, 1)
 
     local titleBanner = titleBar:CreateTexture(nil, "ARTWORK")
-    titleBanner:SetAllPoints(titleBar)
+    titleBanner:SetPoint("TOPLEFT",  titleBar, "TOPLEFT",  4, -TITLE_CONTROL_STRIP_H)
+    titleBanner:SetPoint("TOPRIGHT", titleBar, "TOPRIGHT", -4, -TITLE_CONTROL_STRIP_H)
+    titleBanner:SetPoint("BOTTOM",   titleBar, "BOTTOM",    0, 4)
     titleBanner:SetTexCoord(0, 1, 0, 1)
     titleBanner:SetTexture(TITLE_ICON_FALLBACK)
     titleBanner:SetTexture(TITLE_BANNER_PATH)
     f.titleBanner = titleBanner
 
     -- Close button
-    local closeBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    local closeBtn = CreateFrame("Button", nil, titleBar, "UIPanelButtonTemplate")
     closeBtn:SetSize(HEADER_ICON_BUTTON_W, HEADER_ICON_BUTTON_H)
-    closeBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -HEADER_ICON_BUTTON_MARGIN, -HEADER_ICON_BUTTON_MARGIN)
+    closeBtn:SetPoint("TOPRIGHT", titleBar, "TOPRIGHT", -HEADER_ICON_BUTTON_MARGIN, -HEADER_ICON_BUTTON_MARGIN)
     ConfigureHeaderIconButton(closeBtn, CLOSE_ICON_TEXTURE, "Close", "ANCHOR_LEFT")
-    closeBtn:SetScript("OnClick", function() f:Hide() end)
+    closeBtn:SetScript("OnClick", function()
+        if InCombatLockdown and InCombatLockdown() then
+            if DEFAULT_CHAT_FRAME then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff00ff98Key Party|r: cannot close the window while in combat.")
+            end
+            return
+        end
+        f:Hide()
+    end)
 
     -- Refresh button
-    local refreshBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    local refreshBtn = CreateFrame("Button", nil, titleBar, "UIPanelButtonTemplate")
     refreshBtn:SetSize(HEADER_ICON_BUTTON_W, HEADER_ICON_BUTTON_H)
     refreshBtn:SetPoint("TOPRIGHT", closeBtn, "TOPLEFT", -HEADER_ICON_BUTTON_GAP, 0)
     ConfigureHeaderIconButton(refreshBtn, nil, "Refresh", "ANCHOR_RIGHT", nil, REFRESH_ICON_ATLAS)
     refreshBtn:SetScript("OnClick", function()
         if KL_UI.OnRefresh then KL_UI.OnRefresh() end
+    end)
+
+    -- Scale buttons (- / +)
+    local scaleDownBtn = CreateFrame("Button", nil, titleBar, "UIPanelButtonTemplate")
+    scaleDownBtn:SetSize(HEADER_ICON_BUTTON_W, HEADER_ICON_BUTTON_H)
+    scaleDownBtn:SetPoint("TOPRIGHT", refreshBtn, "TOPLEFT", -HEADER_ICON_BUTTON_GAP, 0)
+    scaleDownBtn:SetText("-")
+    scaleDownBtn:SetScript("OnEnter", function(btn)
+        GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
+        GameTooltip:AddLine("Zoom out", 1, 0.82, 0)
+        GameTooltip:Show()
+    end)
+    scaleDownBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    scaleDownBtn:SetScript("OnClick", function()
+        KL_UI:SetFrameScale(KL_UI:GetFrameScale() - FRAME_SCALE_STEP)
+    end)
+
+    local scaleUpBtn = CreateFrame("Button", nil, titleBar, "UIPanelButtonTemplate")
+    scaleUpBtn:SetSize(HEADER_ICON_BUTTON_W, HEADER_ICON_BUTTON_H)
+    scaleUpBtn:SetPoint("TOPRIGHT", scaleDownBtn, "TOPLEFT", -HEADER_ICON_BUTTON_GAP, 0)
+    scaleUpBtn:SetText("+")
+    scaleUpBtn:SetScript("OnEnter", function(btn)
+        GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
+        GameTooltip:AddLine("Zoom in", 1, 0.82, 0)
+        GameTooltip:Show()
+    end)
+    scaleUpBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    scaleUpBtn:SetScript("OnClick", function()
+        KL_UI:SetFrameScale(KL_UI:GetFrameScale() + FRAME_SCALE_STEP)
     end)
 
 
@@ -884,6 +996,7 @@ local function BuildFrame()
     for i = 1, YOUR_SCORES_ICON_COUNT do
         local slot = CreateFrame("Button", nil, scoreArea, "SecureActionButtonTemplate")
         slot:SetHeight(SCORE_H)
+        slot:RegisterForClicks("AnyUp", "AnyDown")
         slot:EnableMouse(true)
 
         local icon = slot:CreateTexture(nil, "ARTWORK")
@@ -910,9 +1023,13 @@ local function BuildFrame()
             if btn.mapName then
                 GameTooltip:AddLine(btn.mapName, 1, 1, 1)
             end
-            if btn.portalSpellName then
+            if btn.teleportSpellID then
                 GameTooltip:AddLine("Click to teleport", 0.2, 1, 0.2)
-                GameTooltip:AddLine(btn.portalSpellName, 0.8, 0.8, 1)
+                if btn.portalSpellName then
+                    GameTooltip:AddLine(btn.portalSpellName, 0.8, 0.8, 1)
+                else
+                    GameTooltip:AddLine("Known teleport spell", 0.8, 0.8, 1)
+                end
             else
                 GameTooltip:AddLine("No teleport available", 1, 0.2, 0.2)
             end
@@ -933,7 +1050,7 @@ local function BuildFrame()
         for _, o in ipairs(outlineOffsets) do
             local fs = slot:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
             fs:SetDrawLayer("OVERLAY", 1)
-            fs:SetPoint("CENTER", icon, "CENTER", o.x, o.y)
+            fs:SetPoint("BOTTOM", icon, "BOTTOM", o.x, o.y + 2)
             fs:SetText("-")
             fs:SetTextColor(0, 0, 0, 0.95)
             scoreOutline[#scoreOutline + 1] = fs
@@ -941,7 +1058,7 @@ local function BuildFrame()
 
         local scoreText = slot:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
         scoreText:SetDrawLayer("OVERLAY", 5)
-        scoreText:SetPoint("CENTER", icon, "CENTER", 0, 0)
+        scoreText:SetPoint("BOTTOM", icon, "BOTTOM", 0, 2)
         scoreText:SetText("-")
         scoreText:SetShadowColor(0, 0, 0, 0)
         scoreText:SetShadowOffset(0, 0)
@@ -1007,6 +1124,7 @@ local function BuildFrame()
     local bestIconButton = CreateFrame("Button", nil, bestContent, "SecureActionButtonTemplate")
     bestIconButton:SetPoint("TOPLEFT", bestContent, "TOPLEFT", 0, 0)
     bestIconButton:SetSize(bestContent:GetHeight(), bestContent:GetHeight())
+    bestIconButton:RegisterForClicks("AnyUp", "AnyDown")
 
     local bestIcon = bestIconButton:CreateTexture(nil, "ARTWORK")
     bestIcon:SetAllPoints()
@@ -1047,9 +1165,13 @@ local function BuildFrame()
         if btn.mapName then
             GameTooltip:AddLine(btn.mapName, 1, 1, 1)
         end
-        if btn.portalSpellName then
+        if btn.teleportSpellID then
             GameTooltip:AddLine("Click to teleport", 0.2, 1, 0.2)
-            GameTooltip:AddLine(btn.portalSpellName, 0.8, 0.8, 1)
+            if btn.portalSpellName then
+                GameTooltip:AddLine(btn.portalSpellName, 0.8, 0.8, 1)
+            else
+                GameTooltip:AddLine("Known teleport spell", 0.8, 0.8, 1)
+            end
         else
             GameTooltip:AddLine("No teleport available", 1, 0.2, 0.2)
         end
@@ -1122,11 +1244,96 @@ local function BuildFrame()
     f.partyChatAnnouncementAtDungeonEndCheck = partyAnnouncementCheck
     f.partyChatAnnouncementAtDungeonEndLabel = partyAnnouncementLabel
 
+    -- Bottom-right resize grip: drag horizontally to scale the whole frame.
+    local resizeGrip = CreateFrame("Button", nil, f)
+    resizeGrip:SetSize(18, 18)
+    resizeGrip:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -4, 4)
+    resizeGrip:EnableMouse(true)
+    resizeGrip:RegisterForDrag("LeftButton")
+
+    local resizeIcon = resizeGrip:CreateTexture(nil, "OVERLAY")
+    resizeIcon:SetAllPoints(resizeGrip)
+    resizeIcon:SetTexture(RESIZE_GRIP_TEXTURE)
+    resizeIcon:SetVertexColor(0.80, 0.80, 0.85, 0.85)
+
+    resizeGrip:SetScript("OnEnter", function()
+        resizeIcon:SetVertexColor(1.00, 0.82, 0.00, 0.95)
+        GameTooltip:SetOwner(resizeGrip, "ANCHOR_LEFT")
+        GameTooltip:AddLine("Drag to scale UI", 1, 0.82, 0)
+        GameTooltip:Show()
+    end)
+    resizeGrip:SetScript("OnLeave", function()
+        resizeIcon:SetVertexColor(0.80, 0.80, 0.85, 0.85)
+        GameTooltip:Hide()
+    end)
+
+    resizeGrip:SetScript("OnDragStart", function()
+        if InCombatLockdown and InCombatLockdown() then
+            if DEFAULT_CHAT_FRAME then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff00ff98Key Party|r: cannot resize the window while in combat.")
+            end
+            return
+        end
+
+        local cursorX = GetCursorPosition()
+        local uiScale = (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
+        f._scaleDragStartCursorX = (tonumber(cursorX) or 0) / (uiScale > 0 and uiScale or 1)
+        f._scaleDragStartScale = KL_UI:GetFrameScale()
+        f._isDraggingScale = true
+
+        resizeGrip:SetScript("OnUpdate", function()
+            if not f._isDraggingScale then
+                return
+            end
+            local currentX = GetCursorPosition()
+            currentX = (tonumber(currentX) or 0) / (uiScale > 0 and uiScale or 1)
+            local dx = currentX - (f._scaleDragStartCursorX or currentX)
+            local newScale = (f._scaleDragStartScale or FRAME_SCALE_DEFAULT) + (dx / FRAME_W)
+            KL_UI:SetFrameScale(newScale)
+        end)
+    end)
+
+    local function StopScaleDrag()
+        f._isDraggingScale = false
+        resizeGrip:SetScript("OnUpdate", nil)
+    end
+
+    resizeGrip:SetScript("OnDragStop", StopScaleDrag)
+    resizeGrip:SetScript("OnMouseUp", StopScaleDrag)
+
+    f.resizeGrip = resizeGrip
+    f.resizeGripIcon = resizeIcon
+
     return f
 end
 
 local mainFrame = BuildFrame()
 KL_UI.frame = mainFrame
+
+function KL_UI:GetFrameScale()
+    if type(KeyPartyDB) == "table" and type(KeyPartyDB.frameScale) == "number" then
+        return KeyPartyDB.frameScale
+    end
+    return FRAME_SCALE_DEFAULT
+end
+
+function KL_UI:SetFrameScale(scale)
+    scale = math.max(FRAME_SCALE_MIN, math.min(FRAME_SCALE_MAX, tonumber(scale) or FRAME_SCALE_DEFAULT))
+    scale = math.floor(scale * 10 + 0.5) / 10  -- round to 1 decimal
+    if type(KeyPartyDB) == "table" then
+        KeyPartyDB.frameScale = scale
+    end
+    if self.frame then
+        self.frame:SetScale(scale)
+    end
+end
+
+-- Apply saved scale on startup (after SavedVariables are loaded).
+C_Timer.After(0, function()
+    if KL_UI.frame then
+        KL_UI.frame:SetScale(KL_UI:GetFrameScale())
+    end
+end)
 
 function KL_UI:RefreshCooldownIndicators()
     local f = self.frame
@@ -1141,13 +1348,46 @@ function KL_UI:RefreshCooldownIndicators()
         debugDuration = self.debugCooldownDuration
     end
 
+    local teleportSpellIDs = {}
+    local seenSpellIDs = {}
+
     if f._scoreSlots then
         for _, slot in ipairs(f._scoreSlots) do
-            ApplySpellCooldown(slot.cooldown, slot.teleportSpellID, debugEndTime, debugDuration)
+            local spellID = slot and slot.teleportSpellID
+            if spellID and not seenSpellIDs[spellID] then
+                seenSpellIDs[spellID] = true
+                teleportSpellIDs[#teleportSpellIDs + 1] = spellID
+            end
         end
     end
 
-    ApplySpellCooldown(f.bestKeyCooldown, f.bestKeyTeleportSpellID, debugEndTime, debugDuration)
+    if f.bestKeyTeleportSpellID and not seenSpellIDs[f.bestKeyTeleportSpellID] then
+        seenSpellIDs[f.bestKeyTeleportSpellID] = true
+        teleportSpellIDs[#teleportSpellIDs + 1] = f.bestKeyTeleportSpellID
+    end
+
+    local sharedCooldown = nil
+    if not debugEndTime then
+        sharedCooldown = GetSharedTeleportCooldown(teleportSpellIDs)
+    end
+
+    if f._scoreSlots then
+        for _, slot in ipairs(f._scoreSlots) do
+            if sharedCooldown and slot.teleportSpellID then
+                slot.cooldown:Show()
+                slot.cooldown:SetCooldown(sharedCooldown.startTime, sharedCooldown.duration, sharedCooldown.modRate)
+            else
+                ApplySpellCooldown(slot.cooldown, slot.teleportSpellID, debugEndTime, debugDuration)
+            end
+        end
+    end
+
+    if sharedCooldown and f.bestKeyTeleportSpellID then
+        f.bestKeyCooldown:Show()
+        f.bestKeyCooldown:SetCooldown(sharedCooldown.startTime, sharedCooldown.duration, sharedCooldown.modRate)
+    else
+        ApplySpellCooldown(f.bestKeyCooldown, f.bestKeyTeleportSpellID, debugEndTime, debugDuration)
+    end
 end
 
 function KL_UI:SetDebugCooldown(seconds)
@@ -1193,6 +1433,17 @@ end)
 
 mainFrame:SetScript("OnHide", function()
     KL_UI:StopCooldownTicker()
+end)
+
+local cooldownEvents = CreateFrame("Frame")
+cooldownEvents:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+cooldownEvents:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+cooldownEvents:RegisterEvent("SPELLS_CHANGED")
+cooldownEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+cooldownEvents:SetScript("OnEvent", function()
+    if KL_UI and KL_UI.frame and KL_UI.frame:IsShown() then
+        KL_UI:RefreshCooldownIndicators()
+    end
 end)
 
 -- ── Public: populate the frame with current data ──────────────────────────────
@@ -1392,6 +1643,9 @@ function KL_UI:Populate(members, best)
         if dungeon then
             local score = tonumber(playerScores[dungeon.mapID]) or 0
             local spellID = addonTable and addonTable.GetTeleportSpellIDForMap and addonTable.GetTeleportSpellIDForMap(dungeon.mapID)
+            if not spellID and addonTable and addonTable.GetTeleportSpellIDForMapName then
+                spellID = addonTable.GetTeleportSpellIDForMapName(dungeon.name)
+            end
             local spellName = spellID and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID) or nil
 
             slot.mapName = dungeon.name
@@ -1400,10 +1654,11 @@ function KL_UI:Populate(members, best)
 
             if not InCombatLockdown() then
                 if spellID then
+                    local castSpell = spellName or spellID
                     slot:SetAttribute("type", "spell")
-                    slot:SetAttribute("spell", spellID)
+                    slot:SetAttribute("spell", castSpell)
                     slot:EnableMouse(true)
-                    slot.border:SetColor(0.45, 0.45, 0.45, 0.95)
+                    slot.border:SetColor(0.20, 1.00, 0.20, 0.95)
                 else
                     slot:SetAttribute("type", nil)
                     slot:SetAttribute("spell", nil)
@@ -1412,7 +1667,7 @@ function KL_UI:Populate(members, best)
                 end
             else
                 if spellID then
-                    slot.border:SetColor(0.45, 0.45, 0.45, 0.95)
+                    slot.border:SetColor(0.20, 1.00, 0.20, 0.95)
                 else
                     slot.border:SetColor(1.00, 0.20, 0.20, 0.95)
                 end
@@ -1424,6 +1679,12 @@ function KL_UI:Populate(members, best)
             slot.abbrText:SetText(AbbreviateDungeonName(dungeon.name))
             if slot.keyLevelText then
                 slot.keyLevelText:SetText(level > 0 and ("+" .. level) or "")
+                if level > 0 and slot.lastScoreColor then
+                    local c = slot.lastScoreColor
+                    slot.keyLevelText:SetTextColor(c.r, c.g, c.b, 1)
+                else
+                    slot.keyLevelText:SetTextColor(0.85, 0.85, 0.90, 1)
+                end
             end
         else
             slot.mapName = nil
@@ -1449,18 +1710,23 @@ function KL_UI:Populate(members, best)
     -- Best key box
     if best then
         local spellID = addonTable and addonTable.GetTeleportSpellIDForMap and addonTable.GetTeleportSpellIDForMap(best.mapID)
+        if not spellID and addonTable and addonTable.GetTeleportSpellIDForMapName then
+            spellID = addonTable.GetTeleportSpellIDForMapName(GetMapName(best.mapID))
+        end
         local spellName = spellID and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID) or nil
 
         f.bestKeyIconButton.mapName = GetMapName(best.mapID)
         f.bestKeyIconButton.portalSpellName = spellName
+        f.bestKeyIconButton.teleportSpellID = spellID
         f.bestKeyTeleportSpellID = spellID
 
         if not InCombatLockdown() then
             if spellID then
+                local castSpell = spellName or spellID
                 f.bestKeyIconButton:SetAttribute("type", "spell")
-                f.bestKeyIconButton:SetAttribute("spell", spellID)
+                f.bestKeyIconButton:SetAttribute("spell", castSpell)
                 f.bestKeyIconButton:EnableMouse(true)
-                f.bestKeyIconBorder:SetColor(0.45, 0.45, 0.45, 0.95)
+                f.bestKeyIconBorder:SetColor(0.20, 1.00, 0.20, 0.95)
             else
                 f.bestKeyIconButton:SetAttribute("type", nil)
                 f.bestKeyIconButton:SetAttribute("spell", nil)
@@ -1469,7 +1735,7 @@ function KL_UI:Populate(members, best)
             end
         else
             if spellID then
-                f.bestKeyIconBorder:SetColor(0.45, 0.45, 0.45, 0.95)
+                f.bestKeyIconBorder:SetColor(0.20, 1.00, 0.20, 0.95)
             else
                 f.bestKeyIconBorder:SetColor(1.00, 0.20, 0.20, 0.95)
             end
@@ -1488,6 +1754,7 @@ function KL_UI:Populate(members, best)
     else
         f.bestKeyIconButton.mapName = nil
         f.bestKeyIconButton.portalSpellName = nil
+        f.bestKeyIconButton.teleportSpellID = nil
         f.bestKeyTeleportSpellID = nil
         if not InCombatLockdown() then
             f.bestKeyIconButton:SetAttribute("type", nil)
@@ -1505,7 +1772,13 @@ function KL_UI:Populate(members, best)
             "|cff606060Ask group members to run Key Party and use /kp refresh.|r")
     end
 
-    f.statusText:SetText(string.format("Last refresh: %s", date("%H:%M:%S")))
+    do
+        local addonName = "KeyParty"
+        local version = (C_AddOns and C_AddOns.GetAddOnMetadata)
+            and C_AddOns.GetAddOnMetadata(addonName, "Version")
+            or "?"
+        f.statusText:SetText(string.format("v%s  |  Last refresh: %s", tostring(version or "?"), date("%H:%M:%S")))
+    end
 
     self:RefreshCooldownIndicators()
 

@@ -42,7 +42,17 @@ local function NormalizePortalSpellMap()
         end
     end
 
-    KeyPartyDB.portalSpellByMap = target
+    -- Normalize existing keys in the canonical table too (string mapIDs -> numeric).
+    local normalized = {}
+    for mapID, spellID in pairs(target) do
+        local m = tonumber(mapID)
+        local s = tonumber(spellID)
+        if m and s and m > 0 and s > 0 and not normalized[m] then
+            normalized[m] = s
+        end
+    end
+
+    KeyPartyDB.portalSpellByMap = normalized
 end
 
 NormalizePortalSpellMap()
@@ -69,11 +79,13 @@ local inspectInFlightStartedAt = 0
 local ENABLE_BACKGROUND_INSPECT = false
 local postDungeonRefreshSerial = 0
 local addonPresenceByName = {}
+local addonVersionByName = {}
 local addonPresenceProbeToken = 0
 local addonPresenceProbePendingUntil = 0
 local lastVersionProbeTime = 0
 local highestNewerAddonVersionSeen = nil
 local initialFrameRefreshPending = true
+local reopenFrameAfterCombat = false
 
 local function GetAddonVersion()
     local version = nil
@@ -170,6 +182,15 @@ local function MarkAddonPresence(name)
     end
 end
 
+local function MarkAddonVersion(name, version)
+    local canonical = CanonicalName(name)
+    local normalizedVersion = tostring(version or "0.0.0")
+    if canonical ~= "Unknown" and normalizedVersion ~= "" then
+        addonVersionByName[canonical] = normalizedVersion
+        addonPresenceByName[canonical] = true
+    end
+end
+
 local function AreAllGroupMembersUsingAddon()
     local units = GroupUnits()
     for _, unit in ipairs(units) do
@@ -204,23 +225,74 @@ local function TriggerAddonPresenceProbe()
 
         local selfName = SafeName("player")
         local refreshed = {}
+        local refreshedVersions = {}
         local units = GroupUnits()
         for _, unit in ipairs(units) do
             if UnitExists(unit) then
                 local memberName = SafeName(unit)
                 if memberName ~= "Unknown" then
                     refreshed[memberName] = addonPresenceByName[memberName] == true
+                    if addonVersionByName[memberName] then
+                        refreshedVersions[memberName] = addonVersionByName[memberName]
+                    end
                 end
             end
         end
         refreshed[selfName] = true
+        refreshedVersions[selfName] = GetAddonVersion()
         addonPresenceByName = refreshed
+        addonVersionByName = refreshedVersions
 
         C_ChatInfo.SendAddonMessage(KeyParty.prefix, "PING_REQ", channel)
 
         if GetTime() >= lastVersionProbeTime + 10.0 then
             lastVersionProbeTime = GetTime()
             C_ChatInfo.SendAddonMessage(KeyParty.prefix, "VERSION_REQ", channel)
+        end
+    end)
+end
+
+local function PrintAddonVersionReport()
+    if not IsGroupCommunicationAllowed() then
+        Print(string.format("KP version report: %s is using %s.", SafeName("player"), GetAddonVersion()))
+        return
+    end
+
+    TriggerAddonPresenceProbe()
+
+    C_Timer.After(1.0, function()
+        local names = {}
+        local selfName = SafeName("player")
+        local localVersion = GetAddonVersion()
+        local seen = {}
+
+        for _, unit in ipairs(GroupUnits()) do
+            if UnitExists(unit) then
+                local name = SafeName(unit)
+                if name ~= "Unknown" and not seen[name] then
+                    seen[name] = true
+                    names[#names + 1] = name
+                end
+            end
+        end
+
+        table.sort(names)
+
+        if #names == 0 then
+            Print("KP version report: no group members found.")
+            return
+        end
+
+        Print("=== KP Version Report ===")
+        for _, name in ipairs(names) do
+            if name == selfName then
+                Print(string.format("- %s: yes (%s)", name, localVersion))
+            elseif addonPresenceByName[name] then
+                local version = addonVersionByName[name] or "unknown"
+                Print(string.format("- %s: yes (%s)", name, version))
+            else
+                Print(string.format("- %s: no", name))
+            end
         end
     end)
 end
@@ -377,13 +449,82 @@ local function IsSpellKnownByID(spellID)
     if not spellID then
         return false
     end
+    -- TWW 11.x: C_SpellBook namespace
+    if C_SpellBook then
+        if C_SpellBook.IsSpellKnownOrOverridesKnown then
+            return C_SpellBook.IsSpellKnownOrOverridesKnown(spellID, false) == true
+        end
+        if C_SpellBook.IsSpellKnown then
+            return C_SpellBook.IsSpellKnown(spellID) == true
+        end
+    end
+    -- Pre-TWW globals (deprecated, kept as fallback)
     ---@diagnostic disable-next-line: deprecated
     if IsSpellKnownOrOverridesKnown then
         ---@diagnostic disable-next-line: deprecated
-        return IsSpellKnownOrOverridesKnown(spellID, false)
+        return IsSpellKnownOrOverridesKnown(spellID, false) == true
     end
     ---@diagnostic disable-next-line: deprecated
-    return IsPlayerSpell(spellID)
+    return IsPlayerSpell(spellID) == true
+end
+
+local function GetSpellNameByID(spellID)
+    if not spellID then
+        return nil
+    end
+    if C_Spell and C_Spell.GetSpellName then
+        local name = C_Spell.GetSpellName(spellID)
+        if name and name ~= "" then
+            return name
+        end
+    end
+    local legacyGetSpellInfo = rawget(_G, "GetSpellInfo")
+    if legacyGetSpellInfo then
+        local name = legacyGetSpellInfo(spellID)
+        if name and name ~= "" then
+            return name
+        end
+    end
+    return nil
+end
+
+local function FindKnownSpellIDByName(targetName)
+    if not targetName or targetName == "" then
+        return nil
+    end
+
+    local wanted = strlower(targetName)
+    local legacyGetNumSpellTabs = rawget(_G, "GetNumSpellTabs")
+    local legacyGetSpellTabInfo = rawget(_G, "GetSpellTabInfo")
+    local legacyGetSpellBookItemInfo = rawget(_G, "GetSpellBookItemInfo")
+    local legacyGetSpellBookItemName = rawget(_G, "GetSpellBookItemName")
+    if not legacyGetNumSpellTabs or not legacyGetSpellTabInfo
+        or not legacyGetSpellBookItemInfo or not legacyGetSpellBookItemName then
+        return nil
+    end
+
+    local tabCount = legacyGetNumSpellTabs()
+    local bookType = rawget(_G, "BOOKTYPE_SPELL") or "spell"
+    if not tabCount or tabCount <= 0 or not bookType then
+        return nil
+    end
+
+    for tabIndex = 1, tabCount do
+        local _, _, offset, numSlots = legacyGetSpellTabInfo(tabIndex)
+        local startSlot = (offset or 0) + 1
+        local endSlot = (offset or 0) + (numSlots or 0)
+        for slot = startSlot, endSlot do
+            local spellName = legacyGetSpellBookItemName(slot, bookType)
+            if spellName and strlower(spellName) == wanted then
+                local itemType, itemID = legacyGetSpellBookItemInfo(slot, bookType)
+                if itemType == "SPELL" and itemID and IsSpellKnownByID(itemID) then
+                    return itemID
+                end
+            end
+        end
+    end
+
+    return nil
 end
 
 local function GetTeleportSpellIDForMap(mapID)
@@ -393,11 +534,31 @@ local function GetTeleportSpellIDForMap(mapID)
     NormalizePortalSpellMap()
     local spellID = KeyPartyDB.portalSpellByMap[mapID]
     if not spellID then
+        local asNumber = tonumber(mapID)
+        if asNumber then
+            spellID = KeyPartyDB.portalSpellByMap[asNumber]
+        end
+    end
+    if not spellID and mapID ~= nil then
+        spellID = KeyPartyDB.portalSpellByMap[tostring(mapID)]
+    end
+    if not spellID then
         return nil
     end
     if IsSpellKnownByID(spellID) then
         return spellID
     end
+
+    -- Fallback for version drift: if the mapped spell ID is stale but the spell
+    -- name still exists in the player's spellbook, remap to the known spell ID.
+    local mappedName = GetSpellNameByID(spellID)
+    local remappedID = FindKnownSpellIDByName(mappedName)
+    if remappedID and remappedID > 0 then
+        local key = tonumber(mapID) or mapID
+        KeyPartyDB.portalSpellByMap[key] = remappedID
+        return remappedID
+    end
+
     return nil
 end
 
@@ -445,23 +606,33 @@ local function ResolveMapID(input)
     return nil
 end
 
-local DEFAULT_PORTAL_SPELLS_BY_DUNGEON = {
-    ["Magister's Terrace"] = 1255433,
-    ["Seat of the Triumvirate"] = 252631,
-    ["Skyreach"] = 169765,
-    ["Maisara Caverns"] = 1255247,
-    ["Windrummer Spire"] = 1254840,
-    ["Pit of Saron"] = 1255366,
-    ["Algeth'ar Academy"] = 396126,
-    ["Nexus Point Xenas"] = 1255391,
-}
+local function GetTeleportSpellIDForMapName(mapName)
+    local mapID = ResolveMapID(mapName)
+    if not mapID then
+        return nil
+    end
+    return GetTeleportSpellIDForMap(mapID)
+end
+
+KeyParty.GetTeleportSpellIDForMapName = GetTeleportSpellIDForMapName
+
+-- Season-specific dungeon data lives in KeyPartySeasonData.lua.
+-- KeyParty_SeasonDungeons is loaded before this file via the .toc.
+local SEASON_DUNGEONS = (type(KeyParty_SeasonDungeons) == "table" and KeyParty_SeasonDungeons) or {}
 
 local function SeedDefaultPortalMappings()
     NormalizePortalSpellMap()
-    for dungeonName, spellID in pairs(DEFAULT_PORTAL_SPELLS_BY_DUNGEON) do
-        local mapID = ResolveMapID(dungeonName)
-        if mapID and not KeyPartyDB.portalSpellByMap[mapID] then
-            KeyPartyDB.portalSpellByMap[mapID] = spellID
+    -- Always apply entries from KeyPartySeasonData.lua so that stale
+    -- SavedVariables from a previous season cannot block current mappings.
+    -- Only /kp setportal overrides (mapIDs not in season data) are kept.
+    for _, entry in ipairs(SEASON_DUNGEONS) do
+        local spellID = tonumber(entry.spellID)
+        if spellID and spellID > 0 then
+            -- Prefer the explicit mapID; fall back to name resolution.
+            local mapID = (tonumber(entry.mapID) or 0) > 0 and tonumber(entry.mapID) or ResolveMapID(entry.name)
+            if mapID then
+                KeyPartyDB.portalSpellByMap[mapID] = spellID
+            end
         end
     end
 end
@@ -1601,6 +1772,7 @@ local function HandleAddonMessage(prefix, message, channel, sender)
     local tag, mapID, level, rating = strsplit("|", message)
     if tag == "VERSION_ACK" then
         local remoteVersion = tostring(mapID or "0.0.0")
+        MarkAddonVersion(senderName, remoteVersion)
         MaybeNotifyOutdatedAddonVersion(remoteVersion, senderName)
         return
     end
@@ -1659,6 +1831,11 @@ local function HandleSlash(msg)
 
     if cmd == "debugaddon" then
         PrintAddonPresenceDebug()
+        return
+    end
+
+    if cmd == "ver" or cmd == "version" then
+        PrintAddonVersionReport()
         return
     end
 
@@ -1743,6 +1920,50 @@ local function HandleSlash(msg)
         return
     end
 
+    if cmd == "debugportal" then
+        NormalizePortalSpellMap()
+        SeedDefaultPortalMappings()
+        local mapTable = C_ChallengeMode.GetMapTable() or {}
+        Print("=== Portal debug ===")
+        Print(string.format("C_SpellBook.IsSpellKnownOrOverridesKnown: %s",
+            tostring(C_SpellBook and C_SpellBook.IsSpellKnownOrOverridesKnown ~= nil)))
+        Print(string.format("C_SpellBook.IsSpellKnown: %s",
+            tostring(C_SpellBook and C_SpellBook.IsSpellKnown ~= nil)))
+        local legacyIsSpellKnownOrOverridesKnown = rawget(_G, "IsSpellKnownOrOverridesKnown")
+        local legacyIsPlayerSpell = rawget(_G, "IsPlayerSpell")
+        Print(string.format("IsSpellKnownOrOverridesKnown (global): %s",
+            tostring(legacyIsSpellKnownOrOverridesKnown ~= nil)))
+        Print(string.format("IsPlayerSpell (global): %s",
+            tostring(legacyIsPlayerSpell ~= nil)))
+        local mappedCount = 0
+        for _ in pairs(KeyPartyDB.portalSpellByMap) do mappedCount = mappedCount + 1 end
+        Print(string.format("portalSpellByMap: %d entries", mappedCount))
+        for _, mapID in ipairs(mapTable) do
+            local name = GetMapName(mapID) or ("mapID=" .. mapID)
+            local spellID = KeyPartyDB.portalSpellByMap[mapID]
+            if spellID then
+                local known = IsSpellKnownByID(spellID)
+                local spellName = GetSpellNameByID(spellID) or "?"
+                local resolvedID = GetTeleportSpellIDForMap(mapID)
+                if resolvedID and resolvedID ~= spellID then
+                    local resolvedName = GetSpellNameByID(resolvedID) or "?"
+                    Print(string.format(
+                        "  %s (map %d): mapped %d (%s) -> known=%s -> remapped %d (%s)",
+                        name, mapID, spellID, spellName, tostring(known), resolvedID, resolvedName
+                    ))
+                else
+                    Print(string.format(
+                        "  %s (map %d): mapped %d (%s) -> known=%s",
+                        name, mapID, spellID, spellName, tostring(known)
+                    ))
+                end
+            else
+                Print(string.format("  %s (map %d): no spell mapped", name, mapID))
+            end
+        end
+        return
+    end
+
     if cmd:match("^setportal%s+") then
         local mapID, spellID = cmd:match("^setportal%s+(%d+)%s+(%d+)$")
         mapID = tonumber(mapID)
@@ -1762,7 +1983,125 @@ local function HandleSlash(msg)
         return
     end
 
-    Print("Usage: /kp [refresh|report]")
+    if cmd == "demo" then
+        -- Populate the UI with the local player plus 5 fictional party members
+        -- using realistic Mythic+ scores so the UI can be previewed without a group.
+        local function MakeDemoScores(dungeons, levels, timed)
+            local scores = {}
+            local lvls   = {}
+            local timeds = {}
+            local total  = 0
+            for i, entry in ipairs(dungeons) do
+                local mapID = tonumber(entry.mapID or entry[1])
+                local level = levels[i] or 0
+                local t     = timed[i] ~= false
+                if mapID and level > 0 then
+                    -- Blizzard formula approximation: each key level above 2 adds ~12 pts (timed),
+                    -- untimed run is worth ~75% of timed score for that level.
+                    local base = 100 + (level - 2) * 12
+                    local score = t and base or math.floor(base * 0.75)
+                    scores[mapID] = score
+                    lvls[mapID]   = level
+                    timeds[mapID] = t
+                    total = total + score
+                end
+            end
+            return scores, lvls, timeds, math.floor(total)
+        end
+
+        local dungeonList = KeyParty_SeasonDungeons or {}
+        if #dungeonList == 0 then
+            Print("Demo mode requires season dungeon data (KeyPartySeasonData.lua).")
+            return
+        end
+
+        KeyParty.members = {}
+
+        -- Real player using local API data where possible.
+        local playerName  = SafeName("player")
+        local playerMember = EnsureMember(playerName)
+        playerMember.displayName = UnitName("player") or playerName
+        playerMember.isSameRealm = true
+        local _, classToken = UnitClass("player")
+        playerMember.classToken = classToken
+        local totalRating, dungeonScores, dungeonLevels, dungeonTimed =
+            ParseRatingSummary(C_PlayerInfo.GetPlayerMythicPlusRatingSummary("player"))
+        if totalRating > 0 then
+            playerMember.totalRating  = totalRating
+            playerMember.dungeonScores = dungeonScores
+            playerMember.dungeonLevels = dungeonLevels
+            playerMember.dungeonTimed  = dungeonTimed
+        else
+            -- Fallback demo scores for the player too.
+            local s, l, t, r = MakeDemoScores(
+                dungeonList,
+                { 10, 9, 11, 9, 10, 8, 10, 9 },
+                { true, true, true, false, true, true, true, true }
+            )
+            playerMember.totalRating   = r
+            playerMember.dungeonScores = s
+            playerMember.dungeonLevels = l
+            playerMember.dungeonTimed  = t
+        end
+        playerMember.key = GetOwnedKeyInfo() or { mapID = dungeonList[1].mapID, level = 10 }
+
+        -- Four fictional party members with varied specs/ratings.
+        -- Key levels are tuned so totalRating falls in realistic ranges:
+        --   Alarindë  ~1740 (experienced DPS)
+        --   Drakthorn ~1220 (casual tank)
+        --   Sylvera   ~1550 (solid healer)
+        --   Gorrath   ~870  (newer player, two dungeons missing)
+        local fictionalMembers = {
+            {
+                name = "Alarindë",   class = "MAGE",
+                levels = { 12, 11, 12, 11, 12, 11, 12, 11 },
+                timed  = { true, true, true, true, true, true, true, true },
+                key    = { mapID = dungeonList[2 <= #dungeonList and 2 or 1].mapID, level = 12 },
+            },
+            {
+                name = "Drakthorn",  class = "WARRIOR",
+                levels = { 9, 9, 8, 9, 9, 8, 9, 8 },
+                timed  = { true, true, false, true, true, false, true, false },
+                key    = { mapID = dungeonList[3 <= #dungeonList and 3 or 1].mapID, level = 9 },
+            },
+            {
+                name = "Sylvera",    class = "DRUID",
+                levels = { 11, 10, 11, 10, 11, 10, 11, 10 },
+                timed  = { true, true, true, false, true, true, true, true },
+                key    = { mapID = dungeonList[4 <= #dungeonList and 4 or 1].mapID, level = 11 },
+            },
+            {
+                name = "Gorrath",    class = "PALADIN",
+                levels = { 8, 0, 7, 8, 0, 7, 8, 7 },
+                timed  = { true, false, false, true, false, false, true, true },
+                key    = nil,
+            },
+        }
+
+        for _, fm in ipairs(fictionalMembers) do
+            local m = EnsureMember(fm.name)
+            m.displayName  = fm.name
+            m.isSameRealm  = true
+            m.classToken   = fm.class
+            local s, l, t, r = MakeDemoScores(dungeonList, fm.levels, fm.timed)
+            m.totalRating   = r
+            m.dungeonScores = s
+            m.dungeonLevels = l
+            m.dungeonTimed  = t
+            m.key           = fm.key
+        end
+
+        local best = BestProgressionKey()
+        if KL_UI then
+            KL_UI:Populate(KeyParty.members, best)
+        else
+            PrintRatingsReport()
+        end
+        Print("Demo mode active. Run /kp refresh to return to live data.")
+        return
+    end
+
+    Print("Usage: /kp [refresh|report|debugportal|demo|ver]")
 end
 
 SLASH_KEYPARTY1 = "/keyparty"
@@ -1788,6 +2127,7 @@ KeyParty:SetScript("OnEvent", function(_, event, ...)
 
         C_ChatInfo.RegisterAddonMessagePrefix(KeyParty.prefix)
         C_ChatInfo.RegisterAddonMessagePrefix(KeyParty.legacyPrefix)
+        MarkAddonVersion(SafeName("player"), GetAddonVersion())
         if KL_UI then
             KL_UI.OnRefresh = RefreshAndReport
             KL_UI.ShouldRefreshOnShow = function()
@@ -1842,6 +2182,35 @@ KeyParty:SetScript("OnEvent", function(_, event, ...)
         SchedulePostDungeonAutoRefresh()
         return
     end
+
+    if event == "PLAYER_REGEN_DISABLED" then
+        if KL_UI and KL_UI.frame and KL_UI.frame:IsShown() then
+            reopenFrameAfterCombat = true
+            pcall(function()
+                KL_UI.frame:Hide()
+            end)
+        else
+            reopenFrameAfterCombat = false
+        end
+        return
+    end
+
+    if event == "PLAYER_REGEN_ENABLED" then
+        if reopenFrameAfterCombat and KL_UI and KL_UI.frame then
+            reopenFrameAfterCombat = false
+            pcall(function()
+                KL_UI.frame:Show()
+            end)
+        else
+            reopenFrameAfterCombat = false
+        end
+
+        if KL_UI and KL_UI.frame and KL_UI.frame:IsShown() then
+            local best = BestProgressionKey()
+            KL_UI:Populate(KeyParty.members, best)
+        end
+        return
+    end
 end)
 
 KeyParty:RegisterEvent("ADDON_LOADED")
@@ -1852,3 +2221,5 @@ KeyParty:RegisterEvent("CHAT_MSG_RAID")
 KeyParty:RegisterEvent("CHAT_MSG_INSTANCE_CHAT")
 KeyParty:RegisterEvent("GROUP_ROSTER_UPDATE")
 KeyParty:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+KeyParty:RegisterEvent("PLAYER_REGEN_DISABLED")
+KeyParty:RegisterEvent("PLAYER_REGEN_ENABLED")

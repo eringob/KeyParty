@@ -2,6 +2,46 @@
 
 All notable changes to this project are documented in this file.
 
+### [1.5.0] - 2026-04-16
+
+### Added
+- Added `KeyPartySeasonData.lua` as the dedicated source for season-specific dungeon definitions, including map IDs, teleport spell IDs, and display names.
+- Added UI scaling controls in the header with `+` and `-` buttons, with persistent saved scale between sessions.
+- Added a bottom-right drag handle to scale the full UI frame by dragging.
+- Added `/kp demo` to populate the addon with the local player plus four fictional party members for UI preview and testing.
+- Added realistic demo party data, including dungeon scores, total Mythic+ rating, available keystones, and highest completed key runs.
+- Added `/kp ver` and `/kp version` to report which party members are using Key Party and which addon version they have installed.
+
+### Changed
+- Season dungeon and teleport mappings are now driven from `KeyPartySeasonData.lua` instead of hardcoded season-specific entries in `KeyParty.lua`.
+- Updated the bundled season data to Midnight Season 1 dungeon definitions.
+- The YOUR SCORES row now derives displayed season dungeons from `KeyPartySeasonData.lua`, so the UI matches the configured season dataset explicitly.
+- The title header now supports the updated banner artwork and keeps the control buttons in a dedicated strip above the banner image.
+- Banner sizing now preserves the artwork aspect ratio based on the active banner texture dimensions.
+- The title banner now sits inside the inner border of the frame instead of touching the outer border edge.
+- The bottom status line now shows the addon version before the last refresh timestamp.
+- The YOUR SCORES tiles now render the score at the bottom of the icon instead of centered.
+- Key level text in YOUR SCORES tiles now uses the same color as the corresponding dungeon score.
+- Increased spacing between the bottom `Auto open after dungeon finish` and `Party chat announcement Best Progression Key after dungeon finish` options while keeping all content inside the frame.
+
+### Fixed
+- Default teleport mappings from the active season file now always override stale SavedVariables mappings from older seasons.
+- Corrected demo data population so seasonal dungeon map IDs are read from structured season entries, allowing highest completed key runs and per-dungeon scores to appear correctly in the UI.
+- Fixed a UI load failure caused by misplaced scale button code inside the weekly affix layout block.
+
+### [1.4.1] - 2026-04-12
+
+### Fixed
+- Teleport spell detection now handles updated spell IDs more reliably and can reconcile stale portal mappings against the player's spellbook.
+- Corrected several default dungeon portal spell mappings, including `Maisara Caverns` and other season dungeons.
+- Dungeon tiles now show the correct teleport availability state, including green borders and `Click to teleport` tooltips when a teleport is available.
+- Teleport tiles now cast reliably when clicked.
+- Teleport cooldowns now refresh correctly after use and are shown consistently across all tiles that have a teleport available.
+- The UI now closes automatically when entering combat and reopens after combat if it had been open before combat started.
+
+### Added
+- Added `/kp debugportal` to print mapped teleport spells, resolved spell names, and known-state diagnostics per dungeon.
+
 ### [1.4.0] - 2026-04-06
 
 ### Fixed
