@@ -729,6 +729,9 @@ local function BuildFrame()
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
     f:SetFrameStrata("DIALOG")
     f:Hide()
+    if UISpecialFrames then
+        table.insert(UISpecialFrames, "KeyPartyMainFrame")
+    end
     ApplyBackdrop(f, 0.08, 0.08, 0.11, 0.97, 0.38, 0.38, 0.48, 1)
 
     -- ── Title bar ─────────────────────────────────────────────────────────────
