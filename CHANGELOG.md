@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+### [1.5.1] - 2026-04-28
+
+### Added
+- Added support for closing the UI frame by pressing the Escape key.
+
 ### [1.5.0] - 2026-04-16
 
 ### Added
