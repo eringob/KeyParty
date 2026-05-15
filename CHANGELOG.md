@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+### [1.5.2] - 2026-05-15
+
+### Added
+- Added two new priority conditions to the "best progression key" recommendation algorithm:
+  - **Low Key Detection**: If any group member has a keystone 3+ levels lower than other keys in the party, that key is recommended first to help catch up the group.
+  - **Lowest Score Member Focus**: The addon now identifies the member with the lowest total rating and recommends keystones that provide the most progression for them (prioritizing missing dungeons).
+
+### Changed
+- The best progression key recommendation now uses a three-tier prioritized approach:
+  1. Low key detection (new)
+  2. Progression for the lowest-scoring member (new)
+  3. Original group progression heuristic (fallback)
+
 ### [1.5.1] - 2026-04-28
 
 ### Added

@@ -110,13 +110,26 @@ These commands remain available for development and debugging, but are not shown
 
 ## Heuristic for the "best progression key"
 
-For each available keystone in the group, the addon calculates a score:
+The addon recommends the best progression key using a prioritized approach:
+
+### Priority 1: Low Key Detection
+- If any group member has a keystone that is 3+ levels lower than other keystones in the group, that key is recommended first.
+- Example: If the group has keystones at +12, +13, +15, and +15, the +12 will be recommended since it's significantly lower.
+
+### Priority 2: Lowest Score Member Progression
+- The addon identifies the group member with the lowest total Mythic+ rating.
+- It then recommends the keystone that provides the best progression opportunity for that member:
+  - Highest priority: Dungeons where this member has no score yet.
+  - Otherwise: The dungeon where they have the lowest score.
+
+### Priority 3: Group Progression (Fallback)
+If neither of the above conditions applies, the addon uses the original scoring logic:
 
 - More points when more players have no score yet for that dungeon.
 - Then preference for lower average group score on that dungeon.
 - Then preference for higher key level.
 
-This gives a practical recommendation for group progression.
+This multi-tiered approach ensures the group focuses on catching up weaker members while maintaining overall progression efficiency.
 
 ## Notes
 

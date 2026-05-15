@@ -1273,9 +1273,11 @@ end
 local function BestProgressionKey()
     local candidates = {}
     local memberList = {}
+    local membersByName = {}
 
     for name, data in pairs(KeyParty.members) do
         memberList[#memberList + 1] = name
+        membersByName[name] = data
         if data.key and data.key.mapID and data.key.level and data.key.level > 0 then
             local id = data.key.mapID .. ":" .. data.key.level
             if not candidates[id] then
@@ -1288,6 +1290,95 @@ local function BestProgressionKey()
         end
     end
 
+    -- Priority 1: Check if any member has a key that is 3+ levels lower than other keys
+    local lowestKeyLevel = nil
+    local lowestKeyCandidate = nil
+    
+    for _, candidate in pairs(candidates) do
+        if lowestKeyLevel == nil or candidate.level < lowestKeyLevel then
+            lowestKeyLevel = candidate.level
+            lowestKeyCandidate = candidate
+        end
+    end
+
+    if lowestKeyLevel and lowestKeyCandidate then
+        local isLowKey = false
+        for _, candidate in pairs(candidates) do
+            if candidate.level >= lowestKeyLevel + 3 then
+                isLowKey = true
+                break
+            end
+        end
+        
+        if isLowKey then
+            return {
+                owner = lowestKeyCandidate.owner,
+                mapID = lowestKeyCandidate.mapID,
+                level = lowestKeyCandidate.level,
+                missingCount = 0,
+                memberCount = #memberList,
+                avgScore = 0,
+            }
+        end
+    end
+
+    -- Priority 2: Find the member with the lowest total rating and recommend
+    -- the key that provides the most progression for them
+    local lowestRatingMember = nil
+    local lowestRatingScore = nil
+
+    for _, memberName in ipairs(memberList) do
+        local data = membersByName[memberName]
+        if data then
+            local totalScore = 0
+            if data.dungeonScores then
+                for _ , score in pairs(data.dungeonScores) do
+                    totalScore = totalScore + (tonumber(score) or 0)
+                end
+            end
+            
+            if lowestRatingScore == nil or totalScore < lowestRatingScore then
+                lowestRatingScore = totalScore
+                lowestRatingMember = memberName
+            end
+        end
+    end
+
+    if lowestRatingMember then
+        local bestCandidateForLowMember = nil
+        local bestScoreForLowMember = nil
+        
+        for _, candidate in pairs(candidates) do
+            local data = membersByName[lowestRatingMember]
+            local score = 0
+            if data and data.dungeonScores then
+                score = data.dungeonScores[candidate.mapID] or 0
+            end
+            
+            -- If member doesn't have a score for this dungeon, it's a high priority progression
+            if score == 0 then
+                bestCandidateForLowMember = candidate
+                bestScoreForLowMember = 0
+                break
+            elseif bestScoreForLowMember == nil or score < bestScoreForLowMember then
+                bestScoreForLowMember = score
+                bestCandidateForLowMember = candidate
+            end
+        end
+
+        if bestCandidateForLowMember then
+            return {
+                owner = bestCandidateForLowMember.owner,
+                mapID = bestCandidateForLowMember.mapID,
+                level = bestCandidateForLowMember.level,
+                missingCount = 0,
+                memberCount = #memberList,
+                avgScore = bestScoreForLowMember,
+            }
+        end
+    end
+
+    -- Fallback: Use the original logic
     local best = nil
     local bestValue = nil
 
