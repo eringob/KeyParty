@@ -877,8 +877,10 @@ local function BuildFrame()
 
     f._keySlots = {}
     for i = 1, PARTY_KEYSTONE_ICON_COUNT do
-        local slot = CreateFrame("Frame", nil, keyArea)
+        local slot = CreateFrame("Button", nil, keyArea, "SecureActionButtonTemplate")
         slot:SetSize(BEST_KEY_ICON_SIZE + 8, KEY_H)
+        slot:RegisterForClicks("AnyUp", "AnyDown")
+        slot:EnableMouse(true)
         slot:Hide()
 
         local icon = slot:CreateTexture(nil, "ARTWORK")
@@ -888,6 +890,16 @@ local function BuildFrame()
         icon:SetTexture(GetEmptyKeystoneIcon())
 
         local border = CreateIconEdgeBorder(slot, icon)
+
+        local cooldown = CreateFrame("Cooldown", nil, slot, "CooldownFrameTemplate")
+        cooldown:SetAllPoints(icon)
+        cooldown:SetFrameLevel(slot:GetFrameLevel() + 30)
+        cooldown:SetDrawSwipe(true)
+        cooldown:SetDrawEdge(true)
+        if cooldown.SetHideCountdownNumbers then
+            cooldown:SetHideCountdownNumbers(false)
+        end
+        cooldown:Hide()
 
         local levelText = slot:CreateFontString(nil, "OVERLAY")
         levelText:SetDrawLayer("OVERLAY", 5)
@@ -912,8 +924,38 @@ local function BuildFrame()
         ownerText:SetTextColor(0.92, 0.92, 0.95, 1)
         ownerText:SetText("")
 
+        slot:SetScript("OnEnter", function(btn)
+            GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+            GameTooltip:AddLine("Party Keystone", 1, 0.82, 0)
+            if btn.mapName then
+                GameTooltip:AddLine(btn.mapName, 1, 1, 1)
+            end
+            if btn.keyLevel and btn.keyLevel > 0 then
+                GameTooltip:AddLine("Keystone: +" .. tostring(btn.keyLevel), 0.9, 0.9, 1)
+            end
+            if btn.ownerName and btn.ownerName ~= "" then
+                GameTooltip:AddLine("Owner: " .. tostring(btn.ownerName), 0.8, 0.8, 1)
+            end
+            if btn.teleportSpellID then
+                GameTooltip:AddLine("Click to teleport", 0.2, 1, 0.2)
+                if btn.portalSpellName then
+                    GameTooltip:AddLine(btn.portalSpellName, 0.8, 0.8, 1)
+                else
+                    GameTooltip:AddLine("Known teleport spell", 0.8, 0.8, 1)
+                end
+            else
+                GameTooltip:AddLine("No teleport available", 1, 0.2, 0.2)
+            end
+            GameTooltip:Show()
+        end)
+
+        slot:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+
         slot.icon = icon
         slot.border = border
+        slot.cooldown = cooldown
         slot.levelText = levelText
         slot.abbrText = abbrText
         slot.ownerText = ownerText
@@ -1354,6 +1396,16 @@ function KL_UI:RefreshCooldownIndicators()
     local teleportSpellIDs = {}
     local seenSpellIDs = {}
 
+    if f._keySlots then
+        for _, slot in ipairs(f._keySlots) do
+            local spellID = slot and slot.teleportSpellID
+            if spellID and not seenSpellIDs[spellID] then
+                seenSpellIDs[spellID] = true
+                teleportSpellIDs[#teleportSpellIDs + 1] = spellID
+            end
+        end
+    end
+
     if f._scoreSlots then
         for _, slot in ipairs(f._scoreSlots) do
             local spellID = slot and slot.teleportSpellID
@@ -1372,6 +1424,17 @@ function KL_UI:RefreshCooldownIndicators()
     local sharedCooldown = nil
     if not debugEndTime then
         sharedCooldown = GetSharedTeleportCooldown(teleportSpellIDs)
+    end
+
+    if f._keySlots then
+        for _, slot in ipairs(f._keySlots) do
+            if sharedCooldown and slot.teleportSpellID then
+                slot.cooldown:Show()
+                slot.cooldown:SetCooldown(sharedCooldown.startTime, sharedCooldown.duration, sharedCooldown.modRate)
+            else
+                ApplySpellCooldown(slot.cooldown, slot.teleportSpellID, debugEndTime, debugDuration)
+            end
+        end
     end
 
     if f._scoreSlots then
@@ -1464,7 +1527,24 @@ function KL_UI:Populate(members, best)
         rows[i].bestLevel:Hide()
     end
     for i = 1, PARTY_KEYSTONE_ICON_COUNT do
-        keySlots[i]:Hide()
+        local slot = keySlots[i]
+        slot.mapName = nil
+        slot.ownerName = nil
+        slot.keyLevel = nil
+        slot.portalSpellName = nil
+        slot.teleportSpellID = nil
+        if not InCombatLockdown() then
+            slot:SetAttribute("type", nil)
+            slot:SetAttribute("spell", nil)
+            slot:EnableMouse(true)
+        end
+        if slot.border then
+            slot.border:SetColor(0.45, 0.45, 0.45, 0.95)
+        end
+        if slot.cooldown then
+            ClearCooldownFrame(slot.cooldown)
+        end
+        slot:Hide()
     end
     if f.weeklyAffixSlot then
         f.weeklyAffixSlot:Hide()
@@ -1560,14 +1640,25 @@ function KL_UI:Populate(members, best)
             local slot = keySlots[i]
             local info = keyedMembers[i]
             local ownerData = members[info.owner]
+            local mapName = GetMapName(info.mapID)
+            local spellID = addonTable and addonTable.GetTeleportSpellIDForMap and addonTable.GetTeleportSpellIDForMap(info.mapID)
+            if not spellID and addonTable and addonTable.GetTeleportSpellIDForMapName then
+                spellID = addonTable.GetTeleportSpellIDForMapName(mapName)
+            end
+            local spellName = spellID and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID) or nil
 
             slot:ClearAllPoints()
             slot:SetPoint("TOPLEFT", f.keyArea, "TOPLEFT", (i - 1) * slotW, 0)
             slot:SetWidth(slotW)
             slot.icon:SetTexture(GetMapIcon(info.mapID))
             slot.levelText:SetText("+" .. tostring(info.level))
+            slot.mapName = mapName
+            slot.ownerName = CanonicalName(info.owner)
+            slot.keyLevel = info.level
+            slot.portalSpellName = spellName
+            slot.teleportSpellID = spellID
             if slot.abbrText then
-                slot.abbrText:SetText(AbbreviateDungeonName(GetMapName(info.mapID)))
+                slot.abbrText:SetText(AbbreviateDungeonName(mapName))
             end
             do
                 local displayName = CanonicalName(info.owner)
@@ -1581,7 +1672,28 @@ function KL_UI:Populate(members, best)
                 end
                 slot.ownerText:SetText(EllipsizeTextToWidth(slot.ownerText, displayName, BEST_KEY_ICON_SIZE))
             end
-            slot.border:SetColor(0.45, 0.45, 0.45, 0.95)
+
+            if not InCombatLockdown() then
+                if spellID then
+                    local castSpell = spellName or spellID
+                    slot:SetAttribute("type", "spell")
+                    slot:SetAttribute("spell", castSpell)
+                    slot:EnableMouse(true)
+                    slot.border:SetColor(0.20, 1.00, 0.20, 0.95)
+                else
+                    slot:SetAttribute("type", nil)
+                    slot:SetAttribute("spell", nil)
+                    slot:EnableMouse(true)
+                    slot.border:SetColor(1.00, 0.20, 0.20, 0.95)
+                end
+            else
+                if spellID then
+                    slot.border:SetColor(0.20, 1.00, 0.20, 0.95)
+                else
+                    slot.border:SetColor(1.00, 0.20, 0.20, 0.95)
+                end
+            end
+
             slot:Show()
         end
     end
@@ -1693,6 +1805,7 @@ function KL_UI:Populate(members, best)
             slot.mapName = nil
             slot.portalSpellName = nil
             slot.teleportSpellID = nil
+            ClearCooldownFrame(slot.cooldown)
             if not InCombatLockdown() then
                 slot:SetAttribute("type", nil)
                 slot:SetAttribute("spell", nil)

@@ -8,14 +8,14 @@
 --
 -- Set a manual override in-game with: /kp setportal <mapID> <spellID>
 
--- Season 1 - Midnight (patch 12.x)
+-- Season 2 - Midnight (patch 12.1 / The War Within)
 KeyParty_SeasonDungeons = {
-    { mapID = 557, spellID = 1254400, name = "Windrunner Spire" },
-    { mapID = 560, spellID = 1254559, name = "Maisara Caverns" },
-    { mapID = 559, spellID = 1254563, name = "Nexus-Point Xenas" },
-    { mapID = 558, spellID = 1254572, name = "Magisters' Terrace" },
-    { mapID = 556, spellID = 1254555, name = "Pit of Saron" },
-    { mapID = 239, spellID = 1254551, name = "Seat of the Triumvirate" },
-    { mapID = 161, spellID = 159898,  name = "Skyreach" },
-    { mapID = 402, spellID = 393273,  name = "Algeth'ar Academy" },
+    { mapID = 2509, spellID = 1286812, name = "Altar of Fangs" },
+    { mapID = 2393, spellID = 1286809, name = "Murder Row" },
+    { mapID = 2437, spellID = 1286807, name = "Den of Nalorakk" },
+    { mapID = 2413, spellID = 1286801, name = "The Blinding Vale" },
+    { mapID = 2444, spellID = 1286804, name = "Voidscar Arena" },
+    { mapID = 1763, spellID = 1286831, name = "Kings' Rest" },
+    { mapID = 1038, spellID = 1286828, name = "Temple of Sethraliss" },
+    { mapID = 430, spellID = 393256, name = "Ruby Life Pools" },
 }

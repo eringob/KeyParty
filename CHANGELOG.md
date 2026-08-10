@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+### [1.6.0] - 2026-08-10
+
+### Changed
+- Updated the bundled season data to the Midnight Season 2 Mythic+ dungeon pool.
+- Added support for the new Season 2 dungeon rotation in the addon’s seasonal dungeon list, including `Altar of Fangs`, `Murder Row`, `Den of Nalorakk`, `The Blinding Vale`, `Voidscar Arena`, `Kings' Rest`, `Temple of Sethraliss`, and `Ruby Life Pools`.
+- Kept the existing season-based UI and teleport mapping flow compatible with the updated dungeon set.
+
+### [1.5.3] - 2026-05-15
+
+### Changed
+- Added teleport functionality to `AVAILABLE KEYSTONES` icons, including click-to-teleport behavior, teleport tooltips, and cooldown overlays.
+- Added green/red teleport availability borders to `AVAILABLE KEYSTONES` icons.
+- Restored teleport functionality in `YOUR SCORES`, including click-to-teleport behavior, teleport tooltips, and cooldown overlays.
+- Restored green/red teleport availability borders in `YOUR SCORES`.
+- Updated cooldown refresh handling so shared teleport cooldowns are tracked consistently across `AVAILABLE KEYSTONES`, `YOUR SCORES`, and `BEST PROGRESSION KEY`.
+
 ### [1.5.2] - 2026-05-15
 
 ### Added
