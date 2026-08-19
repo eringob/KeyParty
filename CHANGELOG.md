@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+### [1.6.1] - 2026-08-19
+
+### Fixed
+- YOUR SCORES now displays only the dungeons configured for the active season, preventing duplicate buttons from legacy map IDs.
+- Dungeon names and abbreviations now use the authoritative seasonal data.
+- Restored dungeon artwork when the active season map ID does not expose its texture directly through the API.
+
 ### [1.6.0] - 2026-08-10
 
 ### Changed

@@ -384,15 +384,27 @@ local function ConfigureHeaderIconButton(button, iconTexture, tooltipText, toolt
     end)
 end
 
-local function GetMapIcon(mapID)
+local function GetMapIcon(mapID, mapName)
     if not mapID or not C_ChallengeMode or not C_ChallengeMode.GetMapUIInfo then
         return EMPTY_ICON_TEXTURE -- INV_Misc_QuestionMark
     end
 
     -- In modern builds this is typically: name, id, timeLimit, texture
-    local _, _, _, texture = C_ChallengeMode.GetMapUIInfo(mapID)
+    local apiName, _, _, texture = C_ChallengeMode.GetMapUIInfo(mapID)
     if texture then
         return texture
+    end
+
+    -- Some clients expose the current dungeon artwork under another map ID.
+    -- Reuse that artwork by matching the explicit season name.
+    if mapName and apiName ~= mapName then
+        local mapTable = C_ChallengeMode.GetMapTable and C_ChallengeMode.GetMapTable() or {}
+        for _, candidateMapID in ipairs(mapTable) do
+            local candidateName, _, _, candidateTexture = C_ChallengeMode.GetMapUIInfo(candidateMapID)
+            if candidateTexture and candidateName == mapName then
+                return candidateTexture
+            end
+        end
     end
 
     return EMPTY_ICON_TEXTURE
@@ -590,30 +602,21 @@ end
 local function GetSeasonDungeons()
     local result = {}
     local seen = {}
+    local seenNames = {}
 
-    -- Primary source: explicit entries from KeyPartySeasonData.lua.
+    -- Season data is authoritative. GetMapTable also contains legacy map IDs,
+    -- which can represent the same dungeon a second time.
     local seasonData = (type(KeyParty_SeasonDungeons) == "table" and KeyParty_SeasonDungeons) or {}
     for _, entry in ipairs(seasonData) do
         local mapID = tonumber(entry.mapID)
-        if mapID and mapID > 0 and not seen[mapID] then
+        local entryName = tostring(entry.name or "")
+        local nameKey = strlower(entryName):gsub("[^%a%d]", "")
+        if mapID and mapID > 0 and not seen[mapID] and nameKey ~= "" and not seenNames[nameKey] then
             seen[mapID] = true
-            local apiName = C_ChallengeMode.GetMapUIInfo(mapID)
+            seenNames[nameKey] = true
             result[#result + 1] = {
                 mapID = mapID,
-                name = (apiName and apiName ~= "") and apiName or (entry.name or ("Map " .. tostring(mapID))),
-            }
-        end
-    end
-
-    -- Fallback: any additional maps known to the API but not in season data.
-    local mapTable = C_ChallengeMode.GetMapTable() or {}
-    for _, mapID in ipairs(mapTable) do
-        if not seen[mapID] then
-            seen[mapID] = true
-            local name = C_ChallengeMode.GetMapUIInfo(mapID)
-            result[#result + 1] = {
-                mapID = mapID,
-                name = (name and name ~= "") and name or ("Map " .. tostring(mapID)),
+                name = entryName,
             }
         end
     end
@@ -1650,7 +1653,7 @@ function KL_UI:Populate(members, best)
             slot:ClearAllPoints()
             slot:SetPoint("TOPLEFT", f.keyArea, "TOPLEFT", (i - 1) * slotW, 0)
             slot:SetWidth(slotW)
-            slot.icon:SetTexture(GetMapIcon(info.mapID))
+            slot.icon:SetTexture(GetMapIcon(info.mapID, mapName))
             slot.levelText:SetText("+" .. tostring(info.level))
             slot.mapName = mapName
             slot.ownerName = CanonicalName(info.owner)
@@ -1789,7 +1792,7 @@ function KL_UI:Populate(members, best)
             end
 
             local level = tonumber(playerLevels[dungeon.mapID]) or 0
-            slot.icon:SetTexture(GetMapIcon(dungeon.mapID))
+            slot.icon:SetTexture(GetMapIcon(dungeon.mapID, dungeon.name))
             ApplyIconScoreText(slot, score)
             slot.abbrText:SetText(AbbreviateDungeonName(dungeon.name))
             if slot.keyLevelText then
@@ -1857,7 +1860,7 @@ function KL_UI:Populate(members, best)
             end
         end
 
-        f.bestKeyIcon:SetTexture(GetMapIcon(best.mapID))
+        f.bestKeyIcon:SetTexture(GetMapIcon(best.mapID, GetMapName(best.mapID)))
         if f.bestKeyLevelText then
             f.bestKeyLevelText:SetText("+" .. best.level)
         end
