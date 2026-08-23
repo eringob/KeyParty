@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-### [1.6.4] - 2026-08-19
+### [1.6.5] - 2026-08-19
 
 ### Changed
 - External key discovery now requests both `!keys` and `/keys` when not all party members use Key Party.
