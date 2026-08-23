@@ -50,6 +50,11 @@ local FRAME_SCALE_MAX     = 2.0
 local RESIZE_GRIP_TEXTURE = "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up"
 local CLOSE_ICON_TEXTURE = "Interface\\Buttons\\UI-GroupLoot-Pass-Up"
 local REFRESH_ICON_ATLAS = "transmog-icon-revert"
+local OPTIONS_ICON_TEXTURE = "Interface\\Buttons\\UI-OptionsButton"
+local OPTIONS_ICON_ATLAS_CANDIDATES = {
+    "services-icon-settings",
+    "common-icon-gear",
+}
 local EMPTY_ICON_TEXTURE = 134400
 local KEYSTONE_ICON_ITEM_CANDIDATES = { 180653, 158923, 138019 }
 local YOUR_SCORES_ICON_COUNT = 8
@@ -387,6 +392,28 @@ local function ConfigureHeaderIconButton(button, iconTexture, tooltipText, toolt
             GameTooltip:Hide()
         end
     end)
+end
+
+local function ResolveFirstAvailableAtlas(candidates)
+    if type(candidates) ~= "table" then
+        return nil
+    end
+
+    local getAtlasInfo = C_Texture and C_Texture.GetAtlasInfo
+    if type(getAtlasInfo) ~= "function" then
+        return nil
+    end
+
+    for _, atlasName in ipairs(candidates) do
+        if type(atlasName) == "string" and atlasName ~= "" then
+            local info = getAtlasInfo(atlasName)
+            if info then
+                return atlasName
+            end
+        end
+    end
+
+    return nil
 end
 
 local function GetMapIcon(mapID, mapName)
@@ -803,6 +830,25 @@ local function BuildFrame()
     ConfigureHeaderIconButton(refreshBtn, nil, "Refresh", "ANCHOR_RIGHT", nil, REFRESH_ICON_ATLAS)
     refreshBtn:SetScript("OnClick", function()
         if KL_UI.OnRefresh then KL_UI.OnRefresh() end
+    end)
+
+    local optionsBtn = CreateFrame("Button", nil, titleBar, "UIPanelButtonTemplate")
+    optionsBtn:SetSize(HEADER_ICON_BUTTON_W, HEADER_ICON_BUTTON_H)
+    optionsBtn:SetPoint("TOPRIGHT", refreshBtn, "TOPLEFT", -HEADER_ICON_BUTTON_GAP, 0)
+    local optionsAtlas = ResolveFirstAvailableAtlas(OPTIONS_ICON_ATLAS_CANDIDATES)
+    ConfigureHeaderIconButton(
+        optionsBtn,
+        optionsAtlas and nil or OPTIONS_ICON_TEXTURE,
+        "Open settings",
+        "ANCHOR_RIGHT",
+        nil,
+        optionsAtlas
+    )
+    optionsBtn:SetScript("OnClick", function()
+        local addonTable = _G.KeyParty
+        if addonTable and addonTable.OpenOptionsPanel then
+            addonTable.OpenOptionsPanel()
+        end
     end)
 
     -- Scale buttons (- / +)

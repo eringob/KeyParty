@@ -276,6 +276,34 @@ end
 local optionsPanelFrame = nil
 local optionsCategoryID = nil
 
+local function BuildBlueWhiteGradientText(text)
+    local value = tostring(text or "")
+    local chars = {}
+    for i = 1, #value do
+        chars[#chars + 1] = value:sub(i, i)
+    end
+
+    local total = #chars
+    if total == 0 then
+        return ""
+    end
+
+    local out = {}
+    local startR, startG, startB = 80, 150, 255
+    local endR, endG, endB = 255, 255, 255
+
+    for i, ch in ipairs(chars) do
+        local t = (total <= 1) and 1 or ((i - 1) / (total - 1))
+        local r = math.floor(startR + (endR - startR) * t + 0.5)
+        local g = math.floor(startG + (endG - startG) * t + 0.5)
+        local b = math.floor(startB + (endB - startB) * t + 0.5)
+        out[#out + 1] = string.format("|cff%02x%02x%02x%s", r, g, b, ch)
+    end
+
+    out[#out + 1] = "|r"
+    return table.concat(out)
+end
+
 local function RefreshOptionsPanel()
     if not optionsPanelFrame then
         return
@@ -347,12 +375,21 @@ local function RegisterOptionsPanel()
     panel.name = "Key Party"
     optionsPanelFrame = panel
 
-    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    local title = panel:CreateFontString(nil, "ARTWORK")
     title:SetPoint("TOPLEFT", 16, -16)
-    title:SetText("Key Party")
+    do
+        local fontPath = select(1, GameFontNormal:GetFont()) or "Fonts\\FRIZQT__.TTF"
+        title:SetFont(fontPath, 32, "OUTLINE")
+    end
+    title:SetShadowColor(0.04, 0.08, 0.16, 0.95)
+    title:SetShadowOffset(1, -1)
+    title:SetText(BuildBlueWhiteGradientText("Key Party"))
 
     local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
+    subtitle:SetWidth(760)
+    subtitle:SetJustifyH("LEFT")
+    subtitle:SetJustifyV("TOP")
     subtitle:SetText("Configure end-of-dungeon behavior, portal bar layout, visibility, growth direction, and scale settings.")
 
     local function CreateOptionCheck(key, labelText, yOffset, getter, setter, onChanged)
@@ -371,6 +408,14 @@ local function RegisterOptionsPanel()
 
         panel[key] = check
         return check
+    end
+
+    local function CreateSectionLabel(text, yOffset)
+        local label = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        label:SetPoint("TOPLEFT", 16, yOffset)
+        label:SetTextColor(0.35, 0.75, 1.0, 1)
+        label:SetText(text)
+        return label
     end
 
     local function CreateScaleSlider(key, labelText, yOffset, minValue, maxValue, step, getter, setter, onChanged)
@@ -441,10 +486,12 @@ local function RegisterOptionsPanel()
         return slider
     end
 
+    CreateSectionLabel("Behavior", -72)
+
     CreateOptionCheck(
         "autoOpenCheck",
         "Auto open after dungeon finish",
-        -56,
+        -92,
         IsAutoOpenAtDungeonEndEnabled,
         SetAutoOpenAtDungeonEndEnabled
     )
@@ -452,15 +499,17 @@ local function RegisterOptionsPanel()
     CreateOptionCheck(
         "partyAnnouncementCheck",
         "Party chat announcement Best Progression Key after dungeon finish",
-        -86,
+        -124,
         IsPartyChatAnnouncementAtDungeonEndEnabled,
         SetPartyChatAnnouncementAtDungeonEndEnabled
     )
 
+    CreateSectionLabel("Portal Layout", -156)
+
     CreateOptionCheck(
         "portalHorizontalCheck",
         "Portal bar horizontal",
-        -116,
+        -176,
         IsPortalBarHorizontalEnabled,
         SetPortalBarHorizontalEnabled,
         function()
@@ -473,7 +522,7 @@ local function RegisterOptionsPanel()
     CreateOptionCheck(
         "portalGrowUpCheck",
         "Vertical portal bar grows upward (otherwise downward)",
-        -146,
+        -208,
         IsPortalBarGrowUpEnabled,
         SetPortalBarGrowUpEnabled,
         function()
@@ -486,7 +535,7 @@ local function RegisterOptionsPanel()
     CreateOptionCheck(
         "portalGrowLeftCheck",
         "Horizontal portal bar grows left (otherwise right)",
-        -176,
+        -240,
         IsPortalBarGrowLeftEnabled,
         SetPortalBarGrowLeftEnabled,
         function()
@@ -496,10 +545,12 @@ local function RegisterOptionsPanel()
         end
     )
 
+    CreateSectionLabel("Portal Visibility", -272)
+
     CreateOptionCheck(
         "portalHideAlwaysCheck",
         "Hide portal bar always",
-        -206,
+        -292,
         IsPortalBarHideAlwaysEnabled,
         SetPortalBarHideAlwaysEnabled,
         function()
@@ -512,7 +563,7 @@ local function RegisterOptionsPanel()
     CreateOptionCheck(
         "portalHideInRaidCheck",
         "Hide portal bar in raids",
-        -236,
+        -324,
         IsPortalBarHideInRaidEnabled,
         SetPortalBarHideInRaidEnabled,
         function()
@@ -525,7 +576,7 @@ local function RegisterOptionsPanel()
     CreateOptionCheck(
         "portalHideInPvPCheck",
         "Hide portal bar in PvP",
-        -266,
+        -356,
         IsPortalBarHideInPvPEnabled,
         SetPortalBarHideInPvPEnabled,
         function()
@@ -538,7 +589,7 @@ local function RegisterOptionsPanel()
     CreateOptionCheck(
         "portalHideInSoloCheck",
         "Hide portal bar in solo content",
-        -296,
+        -388,
         IsPortalBarHideInSoloEnabled,
         SetPortalBarHideInSoloEnabled,
         function()
@@ -548,10 +599,12 @@ local function RegisterOptionsPanel()
         end
     )
 
+    CreateSectionLabel("Scale", -420)
+
     CreateScaleSlider(
         "uiScaleSlider",
         "Main UI scale",
-        -356,
+        -454,
         0.5,
         2.0,
         0.1,
@@ -573,7 +626,7 @@ local function RegisterOptionsPanel()
     CreateScaleSlider(
         "portalScaleSlider",
         "Portal bar scale",
-        -426,
+        -532,
         0.6,
         2.0,
         0.1,
@@ -613,19 +666,28 @@ local function RegisterOptionsPanel()
 end
 
 local function OpenOptionsPanel()
+    local shouldKeepMainFrameOpen = KL_UI and KL_UI.frame and KL_UI.frame:IsShown()
+
     RegisterOptionsPanel()
     RefreshOptionsPanel()
 
     if Settings and Settings.OpenToCategory and optionsCategoryID then
         Settings.OpenToCategory(optionsCategoryID)
-        return
+    elseif InterfaceOptionsFrame_OpenToCategory and optionsPanelFrame then
+        InterfaceOptionsFrame_OpenToCategory(optionsPanelFrame)
+        InterfaceOptionsFrame_OpenToCategory(optionsPanelFrame)
     end
 
-    if InterfaceOptionsFrame_OpenToCategory and optionsPanelFrame then
-        InterfaceOptionsFrame_OpenToCategory(optionsPanelFrame)
-        InterfaceOptionsFrame_OpenToCategory(optionsPanelFrame)
+    if shouldKeepMainFrameOpen then
+        C_Timer.After(0, function()
+            if KL_UI and KL_UI.frame then
+                KL_UI.frame:Show()
+                KL_UI.frame:Raise()
+            end
+        end)
     end
 end
+KeyParty.OpenOptionsPanel = OpenOptionsPanel
 
 local function MarkAddonPresence(name)
     local canonical = CanonicalName(name)

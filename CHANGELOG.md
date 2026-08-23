@@ -13,6 +13,9 @@ All notable changes to this project are documented in this file.
 - Added portal bar growth direction settings in the Blizzard Settings panel: vertical bars can grow up/down and horizontal bars can grow left/right.
 - The local player's portal button now remains the fixed anchor point while the rest of the bar grows from that position.
 - Added portal bar visibility settings to hide it conditionally: always, in raids, in PvP, or in solo content.
+- Added a new header button left of refresh to open the Key Party Blizzard Settings panel directly.
+- Updated the Blizzard Settings panel title to a larger blue-white gradient `Key Party` wordmark.
+- Grouped the Blizzard Settings options into clear sections (`Behavior`, `Portal Layout`, `Portal Visibility`, `Scale`) for better readability.
 
 ### Fixed
 - Party members' shared keystones now remain visible during refreshes and Mythic+ runs until a player explicitly reports that they have no key.
