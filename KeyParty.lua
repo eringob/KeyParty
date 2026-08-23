@@ -1796,6 +1796,83 @@ local function GetOwnedKeyInfo()
     }
 end
 
+local function EnsureAltKeystoneStore()
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    if type(KeyPartyDB.altKeystones) ~= "table" then
+        KeyPartyDB.altKeystones = {}
+    end
+    return KeyPartyDB.altKeystones
+end
+
+local function CurrentCharacterFullName()
+    local full = GetUnitName("player", true) or UnitName("player") or SafeName("player")
+    return tostring(full or "Unknown")
+end
+
+local function UpdateCurrentCharacterAltKeystoneRecord(key)
+    local store = EnsureAltKeystoneStore()
+    local fullName = CurrentCharacterFullName()
+    local shortName = CanonicalName(fullName)
+    local now = GetServerTime and GetServerTime() or time()
+    local _, classToken = UnitClass("player")
+
+    local activeKey = key
+    if activeKey == nil then
+        activeKey = GetOwnedKeyInfo()
+    end
+
+    if activeKey and activeKey.mapID and activeKey.level and activeKey.level > 0 then
+        store[fullName] = {
+            fullName = fullName,
+            shortName = shortName,
+            classToken = classToken,
+            mapID = tonumber(activeKey.mapID),
+            level = tonumber(activeKey.level),
+            updatedAt = tonumber(now) or 0,
+        }
+    else
+        store[fullName] = nil
+    end
+end
+
+local function GetAltKeystoneEntries()
+    local store = EnsureAltKeystoneStore()
+    local current = CurrentCharacterFullName()
+    local out = {}
+
+    for fullName, entry in pairs(store) do
+        local e = (type(entry) == "table") and entry or nil
+        local mapID = tonumber(e and e.mapID)
+        local level = tonumber(e and e.level)
+
+        if fullName ~= current and mapID and mapID > 0 and level and level > 0 then
+            local display = tostring((e and e.shortName) or CanonicalName(fullName))
+            out[#out + 1] = {
+                fullName = tostring((e and e.fullName) or fullName),
+                shortName = display,
+                classToken = tostring((e and e.classToken) or ""),
+                mapID = mapID,
+                level = level,
+                updatedAt = tonumber(e and e.updatedAt) or 0,
+            }
+        end
+    end
+
+    table.sort(out, function(a, b)
+        local an = tostring(a.shortName or "")
+        local bn = tostring(b.shortName or "")
+        if an ~= bn then
+            return an < bn
+        end
+        return tostring(a.fullName or "") < tostring(b.fullName or "")
+    end)
+
+    return out
+end
+KeyParty.GetAltKeystoneEntries = GetAltKeystoneEntries
+
 local function SendOwnKeyInfo(channel, target)
     local key = GetOwnedKeyInfo()
     local totalRating = 0
@@ -2181,6 +2258,7 @@ local function SnapshotLocalState()
 
     local playerMember = EnsureMember(SafeName("player"))
     playerMember.key = GetOwnedKeyInfo()
+    UpdateCurrentCharacterAltKeystoneRecord(playerMember.key)
 end
 
 local function RefreshAndReport(options)
@@ -2930,6 +3008,10 @@ KeyParty:SetScript("OnEvent", function(_, event, ...)
         if KeyPartyDB.portalBarScale == nil then
             KeyPartyDB.portalBarScale = 1.0
         end
+
+        C_Timer.After(1.0, function()
+            UpdateCurrentCharacterAltKeystoneRecord()
+        end)
 
         RegisterOptionsPanel()
 

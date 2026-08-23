@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+### [1.6.6] - 2026-08-23
+
+### Added
+- Added a dedicated right-side alt keystone panel that shows account-wide stored keystones for logged-in alts.
+- Added a side toggle button on the main frame to show or hide the alt keystone panel.
+
+### Changed
+- The alt keystone panel now displays dungeon keys as dungeon images with key-level overlays instead of text-only key labels.
+- Updated alt panel icon styling to match the `AVAILABLE KEYSTONES` visual style (without teleport interaction).
+- Added class-color rendering for alt names in the alt keystone list.
+- The alt panel toggle button now uses a modernized custom style with improved hover/press feedback.
+- Added an `AFFIXES` title above weekly affix icons in the keystone row.
+- Weekly affix icons now use a `2 + 2 + 1` layout (fifth affix centered on the bottom row) with slightly larger icon sizing.
+
+### Fixed
+- The alt keystone panel now defaults to hidden when opening the main UI frame unless explicitly enabled via the toggle.
+
 ### [1.6.5] - 2026-08-19
 
 ### Changed

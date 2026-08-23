@@ -70,6 +70,13 @@ local PORTAL_FRAME_GAP = 8
 local PORTAL_SCALE_MIN = 0.6
 local PORTAL_SCALE_MAX = 2.0
 local PORTAL_SCALE_STEP = 0.1
+local ALT_PANEL_W = 200
+local ALT_PANEL_GAP = 8
+local ALT_PANEL_MAX_ROWS = 10
+local ALT_PANEL_ICON_SIZE = math.floor((BEST_KEY_ICON_SIZE * 0.50) + 0.5)
+local ALT_PANEL_ROW_H = ALT_PANEL_ICON_SIZE + 6
+local ALT_TOGGLE_BUTTON_W = 20
+local ALT_TOGGLE_BUTTON_H = 72
 
 -- Raider.io-style rating colour thresholds
 local RATING_COLORS = {
@@ -1014,19 +1021,15 @@ local function BuildFrame()
     weeklyAffixSlot:SetSize(BEST_KEY_ICON_SIZE + 8, KEY_H)
     weeklyAffixSlot:Hide()
 
+    local weeklyAffixTitle = weeklyAffixSlot:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    weeklyAffixTitle:SetPoint("TOP", weeklyAffixSlot, "TOP", 0, -2)
+    weeklyAffixTitle:SetText("|cffFFD100AFFIXES|r")
+
     local weeklyAffixIcons = {}
-    local affixCellSize = math.floor((BEST_KEY_ICON_SIZE - 8) / 3)
-    local affixOffsets = {
-        { x = 0, y = 0 },
-        { x = affixCellSize + 2, y = 0 },
-        { x = (affixCellSize + 2) * 2, y = 0 },
-        { x = math.floor((affixCellSize + 2) / 2), y = -(affixCellSize + 2) },
-        { x = math.floor((affixCellSize + 2) / 2) + affixCellSize + 2, y = -(affixCellSize + 2) },
-    }
-    for idx, pos in ipairs(affixOffsets) do
+    for idx = 1, WEEKLY_AFFIX_COUNT do
         local icon = weeklyAffixSlot:CreateTexture(nil, "ARTWORK")
-        icon:SetPoint("TOPLEFT", weeklyAffixSlot, "TOPLEFT", pos.x, pos.y)
-        icon:SetSize(affixCellSize, affixCellSize)
+        icon:SetPoint("TOPLEFT", weeklyAffixSlot, "TOPLEFT", 0, 0)
+        icon:SetSize(22, 22)
         icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         icon:SetTexture(134400)
         icon:Hide()
@@ -1042,7 +1045,7 @@ local function BuildFrame()
 
         local hitbox = CreateFrame("Frame", nil, weeklyAffixSlot)
         hitbox:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
-        hitbox:SetSize(affixCellSize, affixCellSize)
+        hitbox:SetSize(22, 22)
         hitbox:EnableMouse(true)
         hitbox:Hide()
         hitbox:SetScript("OnEnter", function(self)
@@ -1070,6 +1073,55 @@ local function BuildFrame()
             hitbox = hitbox,
         }
     end
+
+    local function LayoutWeeklyAffixIcons(slotWidth)
+        local width = tonumber(slotWidth) or (weeklyAffixSlot:GetWidth() or (BEST_KEY_ICON_SIZE + 8))
+        local titleTopOffset = 16
+        local innerPadX = 4
+        local colGap = 4
+        local rowGap = 4
+        local availableW = math.max(30, width - (innerPadX * 2))
+        local availableH = math.max(30, KEY_H - titleTopOffset - 6)
+
+        local cellByWidth = math.floor((availableW - colGap) / 2)
+        local cellByHeight = math.floor((availableH - (rowGap * 2)) / 3)
+        local cell = math.max(20, math.min(30, math.min(cellByWidth, cellByHeight)))
+
+        local pairWidth = (cell * 2) + colGap
+        local leftX = math.floor((width - pairWidth) / 2)
+        local row1Y = -titleTopOffset
+        local row2Y = row1Y - cell - rowGap
+        local row3Y = row2Y - cell - rowGap
+        local centerX = math.floor((width - cell) / 2)
+
+        local positions = {
+            { x = leftX, y = row1Y },
+            { x = leftX + cell + colGap, y = row1Y },
+            { x = leftX, y = row2Y },
+            { x = leftX + cell + colGap, y = row2Y },
+            { x = centerX, y = row3Y },
+        }
+
+        for idx = 1, WEEKLY_AFFIX_COUNT do
+            local cellData = weeklyAffixIcons[idx]
+            local pos = positions[idx]
+            if cellData and pos then
+                cellData.icon:ClearAllPoints()
+                cellData.icon:SetPoint("TOPLEFT", weeklyAffixSlot, "TOPLEFT", pos.x, pos.y)
+                cellData.icon:SetSize(cell, cell)
+
+                cellData.hitbox:ClearAllPoints()
+                cellData.hitbox:SetPoint("TOPLEFT", cellData.icon, "TOPLEFT", 0, 0)
+                cellData.hitbox:SetSize(cell, cell)
+
+                local fontPath = select(1, GameFontNormal:GetFont()) or "Fonts\\FRIZQT__.TTF"
+                cellData.levelText:SetFont(fontPath, math.max(10, math.floor(cell * 0.34)), "OUTLINE")
+            end
+        end
+    end
+
+    weeklyAffixSlot.LayoutIcons = LayoutWeeklyAffixIcons
+    LayoutWeeklyAffixIcons(BEST_KEY_ICON_SIZE + 8)
 
     f.weeklyAffixSlot = weeklyAffixSlot
     f.weeklyAffixIcons = weeklyAffixIcons
@@ -1362,6 +1414,252 @@ end
 
 local mainFrame = BuildFrame()
 KL_UI.frame = mainFrame
+
+local function BuildAltKeystonePanel(anchorFrame)
+    local panel = CreateFrame("Frame", "KeyPartyAltKeystonePanel", UIParent, "BackdropTemplate")
+    panel:SetPoint("TOPLEFT", anchorFrame, "TOPRIGHT", ALT_PANEL_GAP, 0)
+    panel:SetPoint("BOTTOMLEFT", anchorFrame, "BOTTOMRIGHT", ALT_PANEL_GAP, 0)
+    panel:SetWidth(ALT_PANEL_W)
+    panel:SetFrameStrata("DIALOG")
+    ApplyBackdrop(panel, 0.08, 0.08, 0.11, 0.97, 0.38, 0.38, 0.48, 1)
+    panel:Hide()
+
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -12)
+    title:SetTextColor(1.0, 0.82, 0.0, 1)
+    title:SetText("ALTS WITH KEYS")
+    panel.title = title
+
+    local emptyText = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    emptyText:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    emptyText:SetWidth(ALT_PANEL_W - 24)
+    emptyText:SetJustifyH("LEFT")
+    emptyText:SetText("No alt keystones stored yet.")
+    emptyText:Hide()
+    panel.emptyText = emptyText
+
+    panel.rows = {}
+    for i = 1, ALT_PANEL_MAX_ROWS do
+        local y = -36 - ((i - 1) * ALT_PANEL_ROW_H)
+
+        local rowFrame = CreateFrame("Frame", nil, panel)
+        rowFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, y)
+        rowFrame:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, y)
+        rowFrame:SetHeight(ALT_PANEL_ROW_H)
+        rowFrame:Hide()
+
+        local rowName = rowFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        rowName:SetPoint("LEFT", rowFrame, "LEFT", 4, 0)
+        rowName:SetWidth(ALT_PANEL_W - ALT_PANEL_ICON_SIZE - 34)
+        rowName:SetJustifyH("LEFT")
+        rowName:SetJustifyV("MIDDLE")
+        rowName:SetTextColor(0.92, 0.92, 0.95, 1)
+        rowName:Hide()
+
+        local iconFrame = CreateFrame("Frame", nil, rowFrame)
+        iconFrame:SetSize(ALT_PANEL_ICON_SIZE, ALT_PANEL_ICON_SIZE)
+        iconFrame:SetPoint("RIGHT", rowFrame, "RIGHT", -4, 0)
+        iconFrame:Hide()
+
+        local iconTexture = iconFrame:CreateTexture(nil, "ARTWORK")
+        iconTexture:SetPoint("CENTER")
+        iconTexture:SetSize(ALT_PANEL_ICON_SIZE, ALT_PANEL_ICON_SIZE)
+        iconTexture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        iconTexture:SetTexture(EMPTY_ICON_TEXTURE)
+        local iconBorder = CreateIconEdgeBorder(iconFrame, iconTexture)
+        iconFrame.icon = iconTexture
+
+        local levelText = iconFrame:CreateFontString(nil, "OVERLAY")
+        levelText:SetDrawLayer("OVERLAY", 5)
+        levelText:SetPoint("CENTER", iconFrame, "CENTER", 0, 0)
+        do
+            local fontPath = select(1, GameFontNormal:GetFont()) or "Fonts\\FRIZQT__.TTF"
+            levelText:SetFont(fontPath, math.max(14, math.floor(ALT_PANEL_ICON_SIZE * 0.46)), "OUTLINE")
+        end
+        levelText:SetTextColor(1, 1, 1, 1)
+        levelText:SetText("")
+        iconFrame.levelText = levelText
+
+        local abbrText = iconFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        abbrText:SetDrawLayer("OVERLAY", 6)
+        abbrText:SetPoint("TOP", iconFrame, "TOP", 0, -4)
+        abbrText:SetTextColor(1, 1, 1, 1)
+        abbrText:SetText("")
+
+        panel.rows[i] = {
+            frame = rowFrame,
+            name = rowName,
+            iconFrame = iconFrame,
+            icon = iconTexture,
+            iconBorder = iconBorder,
+            levelText = levelText,
+            abbrText = abbrText,
+        }
+    end
+
+    return panel
+end
+
+KL_UI.altKeystonePanel = BuildAltKeystonePanel(mainFrame)
+
+function KL_UI:IsAltPanelVisible()
+    if type(KeyPartyDB) ~= "table" then
+        return false
+    end
+    return KeyPartyDB.altPanelVisible == true
+end
+
+local function SetAltPanelToggleGlyph(button, show)
+    if not button then
+        return
+    end
+    local glyph = show and "<" or ">"
+    if button.glyph then
+        button.glyph:SetText(glyph)
+    else
+        button:SetText(glyph)
+    end
+end
+
+function KL_UI:SetAltPanelVisible(visible)
+    local show = not not visible
+    if type(KeyPartyDB) == "table" then
+        KeyPartyDB.altPanelVisible = show
+    end
+    self.altPanelVisible = show
+    if self.altPanelToggleButton then
+        SetAltPanelToggleGlyph(self.altPanelToggleButton, show)
+    end
+end
+
+local function BuildAltPanelToggleButton(anchorFrame)
+    local button = CreateFrame("Button", nil, anchorFrame, "BackdropTemplate")
+    button:SetSize(ALT_TOGGLE_BUTTON_W, ALT_TOGGLE_BUTTON_H)
+    button:SetPoint("RIGHT", anchorFrame, "RIGHT", -4, 0)
+    button:SetFrameStrata("DIALOG")
+    button:SetFrameLevel((anchorFrame and anchorFrame:GetFrameLevel() or 1) + 20)
+    ApplyBackdrop(button, 0.07, 0.08, 0.12, 0.98, 0.30, 0.35, 0.48, 1)
+
+    local hoverGlow = button:CreateTexture(nil, "HIGHLIGHT")
+    hoverGlow:SetAllPoints()
+    hoverGlow:SetColorTexture(0.28, 0.55, 0.95, 0.20)
+
+    local glyph = button:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    glyph:SetPoint("CENTER", button, "CENTER", 1, 0)
+    glyph:SetTextColor(0.85, 0.90, 1.00, 1)
+    glyph:SetText("<")
+    button.glyph = glyph
+
+    SetAltPanelToggleGlyph(button, KL_UI:IsAltPanelVisible())
+
+    button:SetScript("OnClick", function()
+        KL_UI:SetAltPanelVisible(not KL_UI:IsAltPanelVisible())
+        KL_UI:RefreshAltKeystonePanel()
+    end)
+
+    button:SetScript("OnEnter", function(btn)
+        if not GameTooltip then
+            return
+        end
+        GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+        if KL_UI:IsAltPanelVisible() then
+            GameTooltip:SetText("Hide alt keystones", 1, 1, 1)
+        else
+            GameTooltip:SetText("Show alt keystones", 1, 1, 1)
+        end
+        GameTooltip:Show()
+
+        button:SetBackdropBorderColor(0.40, 0.55, 0.90, 1)
+        if button.glyph then
+            button.glyph:SetTextColor(1, 1, 1, 1)
+        end
+    end)
+
+    button:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+
+        button:SetBackdropBorderColor(0.30, 0.35, 0.48, 1)
+        if button.glyph then
+            button.glyph:SetTextColor(0.85, 0.90, 1.00, 1)
+        end
+    end)
+
+    button:SetScript("OnMouseDown", function()
+        if button.glyph then
+            button.glyph:SetPoint("CENTER", button, "CENTER", 2, -1)
+        end
+    end)
+
+    button:SetScript("OnMouseUp", function()
+        if button.glyph then
+            button.glyph:SetPoint("CENTER", button, "CENTER", 1, 0)
+        end
+    end)
+
+    return button
+end
+
+KL_UI.altPanelToggleButton = BuildAltPanelToggleButton(mainFrame)
+KL_UI:SetAltPanelVisible(KL_UI:IsAltPanelVisible())
+
+function KL_UI:RefreshAltKeystonePanel()
+    local panel = self.altKeystonePanel
+    if not panel then
+        return
+    end
+
+    local shouldShow = self:IsAltPanelVisible()
+    if self.altPanelToggleButton then
+        SetAltPanelToggleGlyph(self.altPanelToggleButton, shouldShow)
+    end
+
+    if not (self.frame and self.frame:IsShown()) then
+        panel:Hide()
+        return
+    end
+
+    if not shouldShow then
+        panel:Hide()
+        return
+    end
+
+    local addonTable = _G.KeyParty
+    local entries = (addonTable and addonTable.GetAltKeystoneEntries and addonTable.GetAltKeystoneEntries()) or {}
+    local GetMapName = (addonTable and addonTable.GetMapName) or function(id)
+        return "Map " .. tostring(id)
+    end
+
+    panel:Show()
+    panel:Raise()
+
+    local visibleRows = 0
+    for i = 1, math.min(#entries, ALT_PANEL_MAX_ROWS) do
+        local row = panel.rows[i]
+        local entry = entries[i]
+        local mapName = GetMapName(entry.mapID)
+        local mapLevel = tonumber(entry.level) or 0
+        row.name:SetText(ColoredPlayerName(tostring(entry.shortName or "Unknown"), { classToken = entry.classToken }))
+        row.icon:SetTexture(GetMapIcon(entry.mapID, mapName))
+        row.levelText:SetText((mapLevel > 0) and tostring(mapLevel) or "")
+        row.abbrText:SetText(AbbreviateDungeonName(mapName))
+        row.iconBorder:SetColor(0.45, 0.45, 0.45, 0.95)
+        row.frame:Show()
+        row.name:Show()
+        row.iconFrame:Show()
+        visibleRows = i
+    end
+
+    for i = visibleRows + 1, ALT_PANEL_MAX_ROWS do
+        local row = panel.rows[i]
+        row.frame:Hide()
+        row.name:Hide()
+        row.iconFrame:Hide()
+    end
+
+    panel.emptyText:SetShown(visibleRows == 0)
+end
 
 local function ClampPortalScale(scale)
     local n = tonumber(scale) or 1.0
@@ -1660,12 +1958,18 @@ function KL_UI:SetFrameScale(scale)
     if self.frame then
         self.frame:SetScale(scale)
     end
+    if self.altKeystonePanel then
+        self.altKeystonePanel:SetScale(scale)
+    end
 end
 
 -- Apply saved scale on startup (after SavedVariables are loaded).
 C_Timer.After(0, function()
     if KL_UI.frame then
         KL_UI.frame:SetScale(KL_UI:GetFrameScale())
+    end
+    if KL_UI.altKeystonePanel then
+        KL_UI.altKeystonePanel:SetScale(KL_UI:GetFrameScale())
     end
     if KL_UI.portalFrame then
         KL_UI.portalFrame:SetScale(KL_UI:GetPortalBarScale())
@@ -1805,6 +2109,7 @@ end
 
 mainFrame:SetScript("OnShow", function()
     KL_UI.portalFrame:Refresh()
+    KL_UI:RefreshAltKeystonePanel()
     KL_UI:StartCooldownTicker()
     KL_UI:RefreshCooldownIndicators()
     if KL_UI.ShouldRefreshOnShow and KL_UI.ShouldRefreshOnShow() and KL_UI.OnRefreshOnShow then
@@ -1813,6 +2118,9 @@ mainFrame:SetScript("OnShow", function()
 end)
 
 mainFrame:SetScript("OnHide", function()
+    if KL_UI and KL_UI.altKeystonePanel then
+        KL_UI.altKeystonePanel:Hide()
+    end
 end)
 
 KL_UI:StartCooldownTicker()
@@ -2059,6 +2367,9 @@ function KL_UI:Populate(members, best, keepFrameHidden)
         f.weeklyAffixSlot:ClearAllPoints()
         f.weeklyAffixSlot:SetPoint("TOPLEFT", f.keyArea, "TOPLEFT", (KEY_AREA_COLUMN_COUNT - 1) * slotW, 0)
         f.weeklyAffixSlot:SetWidth(slotW)
+        if f.weeklyAffixSlot.LayoutIcons then
+            f.weeklyAffixSlot:LayoutIcons(slotW)
+        end
         f.weeklyAffixSlot:Show()
 
         for idx = 1, WEEKLY_AFFIX_COUNT do
@@ -2252,6 +2563,9 @@ function KL_UI:Populate(members, best, keepFrameHidden)
 
     if self.portalFrame then
         self.portalFrame:Refresh()
+    end
+    if self.RefreshAltKeystonePanel then
+        self:RefreshAltKeystonePanel()
     end
     self:RefreshCooldownIndicators()
 
