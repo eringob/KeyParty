@@ -2,9 +2,48 @@
 
 All notable changes to this project are documented in this file.
 
-### [1.6.1] - 2026-08-19
+### [1.6.4] - 2026-08-19
+
+### Changed
+- External key discovery now requests both `!keys` and `/keys` when not all party members use Key Party.
+- Added a new UI option to switch the separate portal bar between vertical and horizontal layout.
+- Moved addon options out of the main Key Party frame into a dedicated Blizzard Settings panel (`Options -> AddOns -> Key Party`).
+- Added `Main UI scale` and `Portal bar scale` controls to the Blizzard Settings panel.
+- Removed the header `+`/`-` zoom buttons from the main frame; scaling is now managed through the Blizzard Settings panel and the resize grip.
+- Added portal bar growth direction settings in the Blizzard Settings panel: vertical bars can grow up/down and horizontal bars can grow left/right.
+- The local player's portal button now remains the fixed anchor point while the rest of the bar grows from that position.
+- Added portal bar visibility settings to hide it conditionally: always, in raids, in PvP, or in solo content.
 
 ### Fixed
+- Party members' shared keystones now remain visible during refreshes and Mythic+ runs until a player explicitly reports that they have no key.
+- Portal bar growth no longer shifts the local player's anchor button position; new buttons now extend only in the configured single direction (up/down/left/right) from that fixed origin.
+- `/kp demo` now always gives all five demo party members a keystone, so `AVAILABLE KEYSTONES` consistently shows five entries.
+- `/kp demo` now always assigns fictional party members keystones from the active season dataset, preventing invalid or non-season dungeon keys.
+- `/kp demo` now also normalizes the local player's displayed demo keystone to the active season dataset when the live owned key is from a non-season dungeon.
+- Dungeon name resolution now falls back to `KeyPartySeasonData.lua` when `C_ChallengeMode.GetMapUIInfo` has no name for a map ID, so demo and best-key sections no longer show placeholders like `Map 2509`/`M2`.
+
+### [1.6.3] - 2026-08-19
+
+### Changed
+- The portal bar now shows the local player's keystone first, followed by other party members' keystones.
+- The portal bar now grows vertically downward from its top position.
+
+### Fixed
+- Restored portal bar visibility after refreshes and ensured it remains above other frames.
+- Improved dungeon score handling for current and legacy map IDs.
+- Best Progression Key now reports the correct number of players missing a score and the correct group average.
+
+### [1.6.2] - 2026-08-19
+
+### Added
+- Added a separate always-visible vertical portal bar outside the main frame, showing the currently available party keystones.
+- Added independent portal bar movement, scaling, and persistent positioning across reloads.
+
+### Changed
+- The portal bar now loads and refreshes independently of opening the Key Party frame.
+
+### Fixed
+- Raid groups now show only the local player in the Key Party frame; other raid members are excluded from the frame display.
 - YOUR SCORES now displays only the dungeons configured for the active season, preventing duplicate buttons from legacy map IDs.
 - Dungeon names and abbreviations now use the authoritative seasonal data.
 - Restored dungeon artwork when the active season map ID does not expose its texture directly through the API.

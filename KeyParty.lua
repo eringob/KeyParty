@@ -175,6 +175,458 @@ local function SetPartyChatAnnouncementAtDungeonEndEnabled(enabled)
     KeyPartyDB.partyChatAnnouncementAtDungeonEnd = enabled and true or false
 end
 
+local function IsPortalBarHorizontalEnabled()
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    return KeyPartyDB.portalBarHorizontal == true
+end
+
+local function SetPortalBarHorizontalEnabled(enabled)
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    KeyPartyDB.portalBarHorizontal = enabled and true or false
+end
+
+local function IsPortalBarGrowUpEnabled()
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    return KeyPartyDB.portalBarGrowUp == true
+end
+
+local function SetPortalBarGrowUpEnabled(enabled)
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    KeyPartyDB.portalBarGrowUp = enabled and true or false
+end
+
+local function IsPortalBarGrowLeftEnabled()
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    return KeyPartyDB.portalBarGrowLeft == true
+end
+
+local function SetPortalBarGrowLeftEnabled(enabled)
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    KeyPartyDB.portalBarGrowLeft = enabled and true or false
+end
+
+local function IsPortalBarHideAlwaysEnabled()
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    return KeyPartyDB.portalBarHideAlways == true
+end
+
+local function SetPortalBarHideAlwaysEnabled(enabled)
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    KeyPartyDB.portalBarHideAlways = enabled and true or false
+end
+
+local function IsPortalBarHideInRaidEnabled()
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    return KeyPartyDB.portalBarHideInRaid == true
+end
+
+local function SetPortalBarHideInRaidEnabled(enabled)
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    KeyPartyDB.portalBarHideInRaid = enabled and true or false
+end
+
+local function IsPortalBarHideInPvPEnabled()
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    return KeyPartyDB.portalBarHideInPvP == true
+end
+
+local function SetPortalBarHideInPvPEnabled(enabled)
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    KeyPartyDB.portalBarHideInPvP = enabled and true or false
+end
+
+local function IsPortalBarHideInSoloEnabled()
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    return KeyPartyDB.portalBarHideInSolo == true
+end
+
+local function SetPortalBarHideInSoloEnabled(enabled)
+    if type(KeyPartyDB) ~= "table" then
+        KeyPartyDB = {}
+    end
+    KeyPartyDB.portalBarHideInSolo = enabled and true or false
+end
+
+local optionsPanelFrame = nil
+local optionsCategoryID = nil
+
+local function RefreshOptionsPanel()
+    if not optionsPanelFrame then
+        return
+    end
+
+    if optionsPanelFrame.autoOpenCheck then
+        optionsPanelFrame.autoOpenCheck:SetChecked(IsAutoOpenAtDungeonEndEnabled())
+    end
+    if optionsPanelFrame.partyAnnouncementCheck then
+        optionsPanelFrame.partyAnnouncementCheck:SetChecked(IsPartyChatAnnouncementAtDungeonEndEnabled())
+    end
+    if optionsPanelFrame.portalHorizontalCheck then
+        optionsPanelFrame.portalHorizontalCheck:SetChecked(IsPortalBarHorizontalEnabled())
+    end
+    if optionsPanelFrame.portalGrowUpCheck then
+        optionsPanelFrame.portalGrowUpCheck:SetChecked(IsPortalBarGrowUpEnabled())
+    end
+    if optionsPanelFrame.portalGrowLeftCheck then
+        optionsPanelFrame.portalGrowLeftCheck:SetChecked(IsPortalBarGrowLeftEnabled())
+    end
+    if optionsPanelFrame.portalHideAlwaysCheck then
+        optionsPanelFrame.portalHideAlwaysCheck:SetChecked(IsPortalBarHideAlwaysEnabled())
+    end
+    if optionsPanelFrame.portalHideInRaidCheck then
+        optionsPanelFrame.portalHideInRaidCheck:SetChecked(IsPortalBarHideInRaidEnabled())
+    end
+    if optionsPanelFrame.portalHideInPvPCheck then
+        optionsPanelFrame.portalHideInPvPCheck:SetChecked(IsPortalBarHideInPvPEnabled())
+    end
+    if optionsPanelFrame.portalHideInSoloCheck then
+        optionsPanelFrame.portalHideInSoloCheck:SetChecked(IsPortalBarHideInSoloEnabled())
+    end
+    if optionsPanelFrame.uiScaleSlider then
+        local uiScale = 1.0
+        if KL_UI and KL_UI.GetFrameScale then
+            uiScale = KL_UI:GetFrameScale()
+        elseif type(KeyPartyDB) == "table" and type(KeyPartyDB.frameScale) == "number" then
+            uiScale = KeyPartyDB.frameScale
+        end
+        optionsPanelFrame.uiScaleSlider._suppressCallback = true
+        optionsPanelFrame.uiScaleSlider:SetValue(uiScale)
+        optionsPanelFrame.uiScaleSlider._suppressCallback = false
+        if optionsPanelFrame.uiScaleSlider.UpdateValueText then
+            optionsPanelFrame.uiScaleSlider:UpdateValueText(uiScale)
+        end
+    end
+    if optionsPanelFrame.portalScaleSlider then
+        local portalScale = 1.0
+        if KL_UI and KL_UI.GetPortalBarScale then
+            portalScale = KL_UI:GetPortalBarScale()
+        elseif type(KeyPartyDB) == "table" and type(KeyPartyDB.portalBarScale) == "number" then
+            portalScale = KeyPartyDB.portalBarScale
+        end
+        optionsPanelFrame.portalScaleSlider._suppressCallback = true
+        optionsPanelFrame.portalScaleSlider:SetValue(portalScale)
+        optionsPanelFrame.portalScaleSlider._suppressCallback = false
+        if optionsPanelFrame.portalScaleSlider.UpdateValueText then
+            optionsPanelFrame.portalScaleSlider:UpdateValueText(portalScale)
+        end
+    end
+end
+
+local function RegisterOptionsPanel()
+    if optionsPanelFrame then
+        return
+    end
+
+    local panel = CreateFrame("Frame", "KeyPartyOptionsPanel", UIParent)
+    panel.name = "Key Party"
+    optionsPanelFrame = panel
+
+    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, -16)
+    title:SetText("Key Party")
+
+    local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    subtitle:SetText("Configure end-of-dungeon behavior, portal bar layout, visibility, growth direction, and scale settings.")
+
+    local function CreateOptionCheck(key, labelText, yOffset, getter, setter, onChanged)
+        local check = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
+        check:SetPoint("TOPLEFT", 16, yOffset)
+        check.Text:SetText(labelText)
+
+        check:SetScript("OnClick", function(btn)
+            setter(btn:GetChecked() == true)
+            if onChanged then
+                onChanged()
+            end
+        end)
+
+        check:SetChecked(getter() == true)
+
+        panel[key] = check
+        return check
+    end
+
+    local function CreateScaleSlider(key, labelText, yOffset, minValue, maxValue, step, getter, setter, onChanged)
+        local label = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        label:SetPoint("TOPLEFT", 16, yOffset + 18)
+        label:SetText(labelText)
+
+        local sliderName = "KeyPartyOptions" .. key
+        local slider = CreateFrame("Slider", sliderName, panel, "OptionsSliderTemplate")
+        slider:SetPoint("TOPLEFT", 16, yOffset)
+        slider:SetWidth(260)
+        slider:SetHeight(16)
+        slider:SetMinMaxValues(minValue, maxValue)
+        slider:SetValueStep(step)
+        slider:SetOrientation("HORIZONTAL")
+        if slider.SetObeyStepOnDrag then
+            slider:SetObeyStepOnDrag(true)
+        end
+
+        local lowText = _G[sliderName .. "Low"]
+        local highText = _G[sliderName .. "High"]
+        local textLabel = _G[sliderName .. "Text"]
+        if lowText then
+            lowText:SetText(string.format("%.1fx", minValue))
+        end
+        if highText then
+            highText:SetText(string.format("%.1fx", maxValue))
+        end
+        if textLabel then
+            textLabel:SetText("")
+        end
+
+        local valueText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        valueText:SetPoint("LEFT", slider, "RIGHT", 14, 0)
+        valueText:SetText("1.0x")
+
+        function slider:UpdateValueText(value)
+            local normalized = math.floor((tonumber(value) or 1.0) * 10 + 0.5) / 10
+            valueText:SetText(string.format("%.1fx", normalized))
+        end
+
+        slider:SetScript("OnValueChanged", function(self, value)
+            local normalized = math.floor((tonumber(value) or 1.0) * 10 + 0.5) / 10
+            if math.abs((tonumber(value) or 0) - normalized) > 0.0001 then
+                self:SetValue(normalized)
+                return
+            end
+
+            self:UpdateValueText(normalized)
+
+            if self._suppressCallback then
+                return
+            end
+
+            setter(normalized)
+            if onChanged then
+                onChanged(normalized)
+            end
+        end)
+
+        local initial = tonumber(getter()) or 1.0
+        slider._suppressCallback = true
+        slider:SetValue(initial)
+        slider._suppressCallback = false
+        slider:UpdateValueText(initial)
+
+        panel[key] = slider
+        return slider
+    end
+
+    CreateOptionCheck(
+        "autoOpenCheck",
+        "Auto open after dungeon finish",
+        -56,
+        IsAutoOpenAtDungeonEndEnabled,
+        SetAutoOpenAtDungeonEndEnabled
+    )
+
+    CreateOptionCheck(
+        "partyAnnouncementCheck",
+        "Party chat announcement Best Progression Key after dungeon finish",
+        -86,
+        IsPartyChatAnnouncementAtDungeonEndEnabled,
+        SetPartyChatAnnouncementAtDungeonEndEnabled
+    )
+
+    CreateOptionCheck(
+        "portalHorizontalCheck",
+        "Portal bar horizontal",
+        -116,
+        IsPortalBarHorizontalEnabled,
+        SetPortalBarHorizontalEnabled,
+        function()
+            if KL_UI and KL_UI.portalFrame and KL_UI.portalFrame.Refresh then
+                KL_UI.portalFrame:Refresh()
+            end
+        end
+    )
+
+    CreateOptionCheck(
+        "portalGrowUpCheck",
+        "Vertical portal bar grows upward (otherwise downward)",
+        -146,
+        IsPortalBarGrowUpEnabled,
+        SetPortalBarGrowUpEnabled,
+        function()
+            if KL_UI and KL_UI.portalFrame and KL_UI.portalFrame.Refresh then
+                KL_UI.portalFrame:Refresh()
+            end
+        end
+    )
+
+    CreateOptionCheck(
+        "portalGrowLeftCheck",
+        "Horizontal portal bar grows left (otherwise right)",
+        -176,
+        IsPortalBarGrowLeftEnabled,
+        SetPortalBarGrowLeftEnabled,
+        function()
+            if KL_UI and KL_UI.portalFrame and KL_UI.portalFrame.Refresh then
+                KL_UI.portalFrame:Refresh()
+            end
+        end
+    )
+
+    CreateOptionCheck(
+        "portalHideAlwaysCheck",
+        "Hide portal bar always",
+        -206,
+        IsPortalBarHideAlwaysEnabled,
+        SetPortalBarHideAlwaysEnabled,
+        function()
+            if KL_UI and KL_UI.portalFrame and KL_UI.portalFrame.Refresh then
+                KL_UI.portalFrame:Refresh()
+            end
+        end
+    )
+
+    CreateOptionCheck(
+        "portalHideInRaidCheck",
+        "Hide portal bar in raids",
+        -236,
+        IsPortalBarHideInRaidEnabled,
+        SetPortalBarHideInRaidEnabled,
+        function()
+            if KL_UI and KL_UI.portalFrame and KL_UI.portalFrame.Refresh then
+                KL_UI.portalFrame:Refresh()
+            end
+        end
+    )
+
+    CreateOptionCheck(
+        "portalHideInPvPCheck",
+        "Hide portal bar in PvP",
+        -266,
+        IsPortalBarHideInPvPEnabled,
+        SetPortalBarHideInPvPEnabled,
+        function()
+            if KL_UI and KL_UI.portalFrame and KL_UI.portalFrame.Refresh then
+                KL_UI.portalFrame:Refresh()
+            end
+        end
+    )
+
+    CreateOptionCheck(
+        "portalHideInSoloCheck",
+        "Hide portal bar in solo content",
+        -296,
+        IsPortalBarHideInSoloEnabled,
+        SetPortalBarHideInSoloEnabled,
+        function()
+            if KL_UI and KL_UI.portalFrame and KL_UI.portalFrame.Refresh then
+                KL_UI.portalFrame:Refresh()
+            end
+        end
+    )
+
+    CreateScaleSlider(
+        "uiScaleSlider",
+        "Main UI scale",
+        -356,
+        0.5,
+        2.0,
+        0.1,
+        function()
+            if KL_UI and KL_UI.GetFrameScale then
+                return KL_UI:GetFrameScale()
+            end
+            return (type(KeyPartyDB) == "table" and tonumber(KeyPartyDB.frameScale)) or 1.0
+        end,
+        function(value)
+            if KL_UI and KL_UI.SetFrameScale then
+                KL_UI:SetFrameScale(value)
+            elseif type(KeyPartyDB) == "table" then
+                KeyPartyDB.frameScale = value
+            end
+        end
+    )
+
+    CreateScaleSlider(
+        "portalScaleSlider",
+        "Portal bar scale",
+        -426,
+        0.6,
+        2.0,
+        0.1,
+        function()
+            if KL_UI and KL_UI.GetPortalBarScale then
+                return KL_UI:GetPortalBarScale()
+            end
+            return (type(KeyPartyDB) == "table" and tonumber(KeyPartyDB.portalBarScale)) or 1.0
+        end,
+        function(value)
+            if KL_UI and KL_UI.SetPortalBarScale then
+                KL_UI:SetPortalBarScale(value)
+            elseif type(KeyPartyDB) == "table" then
+                KeyPartyDB.portalBarScale = value
+            end
+        end,
+        function()
+            if KL_UI and KL_UI.portalFrame and KL_UI.portalFrame.Refresh then
+                KL_UI.portalFrame:Refresh()
+            end
+        end
+    )
+
+    panel:SetScript("OnShow", function()
+        RefreshOptionsPanel()
+    end)
+
+    if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
+        local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name, panel.name)
+        Settings.RegisterAddOnCategory(category)
+        if category and category.GetID then
+            optionsCategoryID = category:GetID()
+        end
+    elseif InterfaceOptions_AddCategory then
+        InterfaceOptions_AddCategory(panel)
+    end
+end
+
+local function OpenOptionsPanel()
+    RegisterOptionsPanel()
+    RefreshOptionsPanel()
+
+    if Settings and Settings.OpenToCategory and optionsCategoryID then
+        Settings.OpenToCategory(optionsCategoryID)
+        return
+    end
+
+    if InterfaceOptionsFrame_OpenToCategory and optionsPanelFrame then
+        InterfaceOptionsFrame_OpenToCategory(optionsPanelFrame)
+        InterfaceOptionsFrame_OpenToCategory(optionsPanelFrame)
+    end
+end
+
 local function MarkAddonPresence(name)
     local canonical = CanonicalName(name)
     if canonical ~= "Unknown" then
@@ -298,12 +750,14 @@ local function PrintAddonVersionReport()
 end
 
 local function RefreshUIIfVisible()
-    if KL_UI and KL_UI.frame and KL_UI.frame:IsShown() then
+    if KL_UI and ((KL_UI.frame and KL_UI.frame:IsShown()) or (KL_UI.portalFrame and KL_UI.portalFrame:IsShown())) then
         local best = nil
         if KeyParty.GetBestProgressionKey then
             best = KeyParty.GetBestProgressionKey()
         end
-        KL_UI:Populate(KeyParty.members, best)
+        local keepFrameHidden = KL_UI.portalFrame and KL_UI.portalFrame:IsShown()
+            and not KL_UI.frame:IsShown()
+        KL_UI:Populate(KeyParty.members, best, keepFrameHidden)
     end
 end
 
@@ -430,6 +884,27 @@ GroupUnits = function()
     return units
 end
 
+local SEASON_DUNGEONS = {}
+
+local function GetSeasonDungeonNameByMapID(mapID)
+    local wanted = tonumber(mapID)
+    if not wanted or type(SEASON_DUNGEONS) ~= "table" then
+        return nil
+    end
+
+    for _, entry in ipairs(SEASON_DUNGEONS) do
+        local entryMapID = tonumber(entry and entry.mapID)
+        if entryMapID and entryMapID == wanted then
+            local name = entry and entry.name
+            if type(name) == "string" and name ~= "" then
+                return name
+            end
+        end
+    end
+
+    return nil
+end
+
 local function GetMapName(mapID)
     if not mapID then
         return "Unknown Dungeon"
@@ -438,6 +913,11 @@ local function GetMapName(mapID)
     local name = C_ChallengeMode.GetMapUIInfo(mapID)
     if name and name ~= "" then
         return name
+    end
+
+    local seasonName = GetSeasonDungeonNameByMapID(mapID)
+    if seasonName then
+        return seasonName
     end
 
     return "Map " .. tostring(mapID)
@@ -618,7 +1098,7 @@ KeyParty.GetTeleportSpellIDForMapName = GetTeleportSpellIDForMapName
 
 -- Season-specific dungeon data lives in KeyPartySeasonData.lua.
 -- KeyParty_SeasonDungeons is loaded before this file via the .toc.
-local SEASON_DUNGEONS = (type(KeyParty_SeasonDungeons) == "table" and KeyParty_SeasonDungeons) or {}
+SEASON_DUNGEONS = (type(KeyParty_SeasonDungeons) == "table" and KeyParty_SeasonDungeons) or {}
 
 local function SeedDefaultPortalMappings()
     NormalizePortalSpellMap()
@@ -961,20 +1441,22 @@ local function ParseRatingSummary(summary)
 
     if type(summary.runs) == "table" then
         for _, run in ipairs(summary.runs) do
-            local mapID = tonumber(run.challengeModeID)
-            local score = tonumber(run.mapScore)
-            local level = tonumber(run.bestRunLevel) or 0
+            local mapID = tonumber(run.challengeModeID or run.mapID or run.mapChallengeModeID)
+            local score = tonumber(run.mapScore or run.dungeonScore or run.score)
+            local level = tonumber(run.bestRunLevel or run.keyLevel or run.level) or 0
             if mapID and mapID > 0 then
                 if score and score > 0 then
                     local prev = scores[mapID] or 0
                     if score > prev then
                         scores[mapID] = score
+                        scores[tostring(mapID)] = score
                     end
                 end
                 if level > 0 then
                     local prevLevel = levels[mapID] or 0
                     if level > prevLevel then
                         levels[mapID] = level
+                        levels[tostring(mapID)] = level
                         timed[mapID]  = run.finishedSuccess == true
                     end
                 end
@@ -1274,6 +1756,78 @@ local function BestProgressionKey()
     local candidates = {}
     local memberList = {}
     local membersByName = {}
+    local function NormalizeDungeonName(name)
+        if type(name) ~= "string" then
+            return ""
+        end
+        return (name:lower():gsub("[%s%p]", ""))
+    end
+
+    local function GetDungeonScore(data, mapID)
+        local scores = data and data.dungeonScores
+        if type(scores) ~= "table" then
+            return 0, false
+        end
+
+        local direct = tonumber(scores[mapID] or scores[tostring(mapID)])
+        if direct and direct > 0 then
+            return direct, true
+        end
+
+        local candidateName = NormalizeDungeonName(GetMapName(mapID))
+        local bestByName = 0
+        local hasAnyScores = false
+
+        for scoreMapID, rawScore in pairs(scores) do
+            local score = tonumber(rawScore) or 0
+            if score > 0 then
+                hasAnyScores = true
+                local scoreMapIDNum = tonumber(scoreMapID)
+                if scoreMapIDNum then
+                    local scoreName = NormalizeDungeonName(GetMapName(scoreMapIDNum))
+                    if candidateName ~= "" and scoreName == candidateName and score > bestByName then
+                        bestByName = score
+                    end
+                end
+            end
+        end
+
+        if bestByName > 0 then
+            return bestByName, true
+        end
+
+        if hasAnyScores then
+            return 0, true
+        end
+
+        local totalRating = tonumber(data and data.totalRating) or 0
+        if totalRating <= 0 then
+            return 0, true
+        end
+
+        -- No per-dungeon details available yet for this member (inspect/API lag).
+        -- Treat as unknown instead of "missing score".
+        return 0, false
+    end
+
+    local function GetCandidateProgress(candidate)
+        local missingCount = 0
+        local scoreSum = 0
+        local counted = 0
+
+        for _, memberName in ipairs(memberList) do
+            local score, hasScoreData = GetDungeonScore(membersByName[memberName], candidate.mapID)
+            if hasScoreData then
+                if score <= 0 then
+                    missingCount = missingCount + 1
+                end
+                scoreSum = scoreSum + score
+                counted = counted + 1
+            end
+        end
+
+        return missingCount, counted, counted > 0 and scoreSum / counted or 0
+    end
 
     for name, data in pairs(KeyParty.members) do
         memberList[#memberList + 1] = name
@@ -1311,13 +1865,14 @@ local function BestProgressionKey()
         end
         
         if isLowKey then
+            local missingCount, memberCount, avgScore = GetCandidateProgress(lowestKeyCandidate)
             return {
                 owner = lowestKeyCandidate.owner,
                 mapID = lowestKeyCandidate.mapID,
                 level = lowestKeyCandidate.level,
-                missingCount = 0,
-                memberCount = #memberList,
-                avgScore = 0,
+                missingCount = missingCount,
+                memberCount = memberCount,
+                avgScore = avgScore,
             }
         end
     end
@@ -1347,33 +1902,38 @@ local function BestProgressionKey()
     if lowestRatingMember then
         local bestCandidateForLowMember = nil
         local bestScoreForLowMember = nil
+        local unknownCandidateForLowMember = nil
         
         for _, candidate in pairs(candidates) do
             local data = membersByName[lowestRatingMember]
-            local score = 0
-            if data and data.dungeonScores then
-                score = data.dungeonScores[candidate.mapID] or 0
-            end
+            local score, hasScoreData = GetDungeonScore(data, candidate.mapID)
             
             -- If member doesn't have a score for this dungeon, it's a high priority progression
-            if score == 0 then
+            if hasScoreData and score == 0 then
                 bestCandidateForLowMember = candidate
                 bestScoreForLowMember = 0
                 break
-            elseif bestScoreForLowMember == nil or score < bestScoreForLowMember then
+            elseif hasScoreData and (bestScoreForLowMember == nil or score < bestScoreForLowMember) then
                 bestScoreForLowMember = score
                 bestCandidateForLowMember = candidate
+            elseif not hasScoreData and not unknownCandidateForLowMember then
+                unknownCandidateForLowMember = candidate
             end
         end
 
+        if not bestCandidateForLowMember then
+            bestCandidateForLowMember = unknownCandidateForLowMember
+        end
+
         if bestCandidateForLowMember then
+            local missingCount, memberCount, avgScore = GetCandidateProgress(bestCandidateForLowMember)
             return {
                 owner = bestCandidateForLowMember.owner,
                 mapID = bestCandidateForLowMember.mapID,
                 level = bestCandidateForLowMember.level,
-                missingCount = 0,
-                memberCount = #memberList,
-                avgScore = bestScoreForLowMember,
+                missingCount = missingCount,
+                memberCount = memberCount,
+                avgScore = avgScore,
             }
         end
     end
@@ -1389,17 +1949,16 @@ local function BestProgressionKey()
 
         for _, memberName in ipairs(memberList) do
             local data = KeyParty.members[memberName]
-            local score = 0
-            if data and data.dungeonScores then
-                score = data.dungeonScores[candidate.mapID] or 0
-            end
+            local score, hasScoreData = GetDungeonScore(data, candidate.mapID)
 
-            if score <= 0 then
-                missingCount = missingCount + 1
-            end
+            if hasScoreData then
+                if score <= 0 then
+                    missingCount = missingCount + 1
+                end
 
-            scoreSum = scoreSum + score
-            counted = counted + 1
+                scoreSum = scoreSum + score
+                counted = counted + 1
+            end
         end
 
         local avgScore = counted > 0 and (scoreSum / counted) or 0
@@ -1538,8 +2097,25 @@ DetectAddonChannel = function()
 end
 
 local function SnapshotLocalState()
+    local previousKeys = {}
+    for name, member in pairs(KeyParty.members) do
+        if member and member.key then
+            previousKeys[name] = {
+                mapID = member.key.mapID,
+                level = member.key.level,
+            }
+        end
+    end
+
     KeyParty.members = {}
     SnapshotGroupRatings()
+
+    for name, member in pairs(KeyParty.members) do
+        local previousKey = previousKeys[name]
+        if previousKey then
+            member.key = previousKey
+        end
+    end
 
     local playerMember = EnsureMember(SafeName("player"))
     playerMember.key = GetOwnedKeyInfo()
@@ -1595,10 +2171,11 @@ local function RefreshAndReport(options)
         if KL_UI then
             local shouldPopulate = (not passive)
                 or (KL_UI.frame and KL_UI.frame:IsShown())
+                or (KL_UI.portalFrame and KL_UI.portalFrame:IsShown())
 
             if shouldPopulate then
                 local ok, err = pcall(function()
-                    KL_UI:Populate(KeyParty.members, best)
+                    KL_UI:Populate(KeyParty.members, best, passive and not KL_UI.frame:IsShown())
                 end)
                 if not ok then
                     Print("UI update failed, falling back to chat report.")
@@ -2100,10 +2677,40 @@ local function HandleSlash(msg)
             return scores, lvls, timeds, math.floor(total)
         end
 
-        local dungeonList = KeyParty_SeasonDungeons or {}
+        local seasonEntries = KeyParty_SeasonDungeons or {}
+        local dungeonList = {}
+        local seenMapIDs = {}
+
+        for _, entry in ipairs(seasonEntries) do
+            local mapID = tonumber(entry and entry.mapID)
+            if (not mapID or mapID <= 0) and entry and entry.name then
+                mapID = ResolveMapID(entry.name)
+            end
+
+            if mapID and mapID > 0 and not seenMapIDs[mapID] then
+                seenMapIDs[mapID] = true
+                dungeonList[#dungeonList + 1] = {
+                    mapID = mapID,
+                    name = entry and entry.name,
+                    spellID = entry and entry.spellID,
+                }
+            end
+        end
+
         if #dungeonList == 0 then
             Print("Demo mode requires season dungeon data (KeyPartySeasonData.lua).")
             return
+        end
+
+        local function DemoSeasonMapID(preferredIndex)
+            local idx = tonumber(preferredIndex) or 1
+            if idx < 1 then
+                idx = 1
+            end
+            if idx > #dungeonList then
+                idx = ((idx - 1) % #dungeonList) + 1
+            end
+            return dungeonList[idx].mapID
         end
 
         KeyParty.members = {}
@@ -2134,7 +2741,24 @@ local function HandleSlash(msg)
             playerMember.dungeonLevels = l
             playerMember.dungeonTimed  = t
         end
-        playerMember.key = GetOwnedKeyInfo() or { mapID = dungeonList[1].mapID, level = 10 }
+        do
+            local ownedKey = GetOwnedKeyInfo()
+            local ownedMapID = ownedKey and tonumber(ownedKey.mapID) or nil
+            local ownedLevel = ownedKey and tonumber(ownedKey.level) or nil
+
+            if ownedMapID and ownedLevel and ownedLevel > 0 and seenMapIDs[ownedMapID] then
+                playerMember.key = {
+                    mapID = ownedMapID,
+                    level = math.floor(ownedLevel),
+                }
+            else
+                local fallbackLevel = (ownedLevel and ownedLevel > 0) and math.floor(ownedLevel) or 10
+                playerMember.key = {
+                    mapID = DemoSeasonMapID(1),
+                    level = fallbackLevel,
+                }
+            end
+        end
 
         -- Four fictional party members with varied specs/ratings.
         -- Key levels are tuned so totalRating falls in realistic ranges:
@@ -2147,25 +2771,25 @@ local function HandleSlash(msg)
                 name = "Alarindë",   class = "MAGE",
                 levels = { 12, 11, 12, 11, 12, 11, 12, 11 },
                 timed  = { true, true, true, true, true, true, true, true },
-                key    = { mapID = dungeonList[2 <= #dungeonList and 2 or 1].mapID, level = 12 },
+                key    = { mapID = DemoSeasonMapID(2), level = 12 },
             },
             {
                 name = "Drakthorn",  class = "WARRIOR",
                 levels = { 9, 9, 8, 9, 9, 8, 9, 8 },
                 timed  = { true, true, false, true, true, false, true, false },
-                key    = { mapID = dungeonList[3 <= #dungeonList and 3 or 1].mapID, level = 9 },
+                key    = { mapID = DemoSeasonMapID(3), level = 9 },
             },
             {
                 name = "Sylvera",    class = "DRUID",
                 levels = { 11, 10, 11, 10, 11, 10, 11, 10 },
                 timed  = { true, true, true, false, true, true, true, true },
-                key    = { mapID = dungeonList[4 <= #dungeonList and 4 or 1].mapID, level = 11 },
+                key    = { mapID = DemoSeasonMapID(4), level = 11 },
             },
             {
                 name = "Gorrath",    class = "PALADIN",
                 levels = { 8, 0, 7, 8, 0, 7, 8, 7 },
                 timed  = { true, false, false, true, false, false, true, true },
-                key    = nil,
+                key    = { mapID = DemoSeasonMapID(5), level = 7 },
             },
         }
 
@@ -2192,7 +2816,12 @@ local function HandleSlash(msg)
         return
     end
 
-    Print("Usage: /kp [refresh|report|debugportal|demo|ver]")
+    if cmd == "options" or cmd == "settings" then
+        OpenOptionsPanel()
+        return
+    end
+
+    Print("Usage: /kp [refresh|report|debugportal|demo|ver|options]")
 end
 
 SLASH_KEYPARTY1 = "/keyparty"
@@ -2215,6 +2844,32 @@ KeyParty:SetScript("OnEvent", function(_, event, ...)
         if KeyPartyDB.partyChatAnnouncementAtDungeonEnd == nil then
             KeyPartyDB.partyChatAnnouncementAtDungeonEnd = false
         end
+        if KeyPartyDB.portalBarHorizontal == nil then
+            KeyPartyDB.portalBarHorizontal = false
+        end
+        if KeyPartyDB.portalBarGrowUp == nil then
+            KeyPartyDB.portalBarGrowUp = false
+        end
+        if KeyPartyDB.portalBarGrowLeft == nil then
+            KeyPartyDB.portalBarGrowLeft = false
+        end
+        if KeyPartyDB.portalBarHideAlways == nil then
+            KeyPartyDB.portalBarHideAlways = false
+        end
+        if KeyPartyDB.portalBarHideInRaid == nil then
+            KeyPartyDB.portalBarHideInRaid = false
+        end
+        if KeyPartyDB.portalBarHideInPvP == nil then
+            KeyPartyDB.portalBarHideInPvP = false
+        end
+        if KeyPartyDB.portalBarHideInSolo == nil then
+            KeyPartyDB.portalBarHideInSolo = false
+        end
+        if KeyPartyDB.portalBarScale == nil then
+            KeyPartyDB.portalBarScale = 1.0
+        end
+
+        RegisterOptionsPanel()
 
         C_ChatInfo.RegisterAddonMessagePrefix(KeyParty.prefix)
         C_ChatInfo.RegisterAddonMessagePrefix(KeyParty.legacyPrefix)
@@ -2227,18 +2882,9 @@ KeyParty:SetScript("OnEvent", function(_, event, ...)
             KL_UI.OnRefreshOnShow = function()
                 RefreshAndReport({ passive = true })
             end
-            KL_UI.OnToggleAutoOpenAtDungeonEnd = function(enabled)
-                SetAutoOpenAtDungeonEndEnabled(enabled)
-            end
-            KL_UI.OnTogglePartyChatAnnouncementAtDungeonEnd = function(enabled)
-                SetPartyChatAnnouncementAtDungeonEndEnabled(enabled)
-            end
-            if KL_UI.SetAutoOpenAtDungeonEndChecked then
-                KL_UI:SetAutoOpenAtDungeonEndChecked(IsAutoOpenAtDungeonEndEnabled())
-            end
-            if KL_UI.SetPartyChatAnnouncementAtDungeonEndChecked then
-                KL_UI:SetPartyChatAnnouncementAtDungeonEndChecked(IsPartyChatAnnouncementAtDungeonEndEnabled())
-            end
+            C_Timer.After(0, function()
+                RefreshAndReport({ passive = true })
+            end)
         end
         Print("loaded. Use /kp to open the panel.")
         return
@@ -2257,15 +2903,23 @@ KeyParty:SetScript("OnEvent", function(_, event, ...)
 
     if event == "CHAT_MSG_PARTY" or event == "CHAT_MSG_RAID" or event == "CHAT_MSG_INSTANCE_CHAT" then
         local message, sender = ...
-        if TryParseExternalKeyMessage(message, sender) and KL_UI and KL_UI.frame:IsShown() then
+        if TryParseExternalKeyMessage(message, sender) and KL_UI
+            and ((KL_UI.frame and KL_UI.frame:IsShown()) or (KL_UI.portalFrame and KL_UI.portalFrame:IsShown())) then
             local best = BestProgressionKey()
-            KL_UI:Populate(KeyParty.members, best)
+            local keepFrameHidden = KL_UI.portalFrame and KL_UI.portalFrame:IsShown()
+                and not KL_UI.frame:IsShown()
+            KL_UI:Populate(KeyParty.members, best, keepFrameHidden)
         end
         return
     end
 
     if event == "GROUP_ROSTER_UPDATE" then
         TriggerAddonPresenceProbe()
+        C_Timer.After(0.5, function()
+            if IsInGroup() or IsInRaid() or IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+                RefreshAndReport({ passive = true })
+            end
+        end)
         return
     end
 

@@ -34,7 +34,7 @@ local function GetBannerSourceDimensions()
     return w, h
 end
 local TITLE_BANNER_SOURCE_W, TITLE_BANNER_SOURCE_H = GetBannerSourceDimensions()
-local FRAME_BODY_H = 585
+local FRAME_BODY_H = 540
 local HEADER_ICON_BUTTON_W = 28
 local HEADER_ICON_BUTTON_H = 22
 local HEADER_ICON_SIZE = 14
@@ -47,7 +47,6 @@ local FRAME_H = FRAME_BODY_H + TITLE_BAR_H
 local FRAME_SCALE_DEFAULT = 1.0
 local FRAME_SCALE_MIN     = 0.5
 local FRAME_SCALE_MAX     = 2.0
-local FRAME_SCALE_STEP    = 0.1
 local RESIZE_GRIP_TEXTURE = "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up"
 local CLOSE_ICON_TEXTURE = "Interface\\Buttons\\UI-GroupLoot-Pass-Up"
 local REFRESH_ICON_ATLAS = "transmog-icon-revert"
@@ -59,10 +58,13 @@ local KEY_AREA_COLUMN_COUNT = 6
 local BEST_KEY_ICON_SIZE = 74
 local WEEKLY_AFFIX_LEVEL_LABELS = { "+2", "+4", "+7", "+10", "+12" }
 local WEEKLY_AFFIX_COUNT = #WEEKLY_AFFIX_LEVEL_LABELS
-local OPTION_CHECKBOX_SCALE = 0.72
-local STATUS_TEXT_BOTTOM_OFFSET = 58
-local AUTO_OPEN_OPTION_BOTTOM_OFFSET = 36
-local PARTY_CHAT_OPTION_BOTTOM_OFFSET = 8
+local STATUS_TEXT_BOTTOM_OFFSET = 24
+local PORTAL_BUTTON_SIZE = 52
+local PORTAL_BUTTON_GAP = 4
+local PORTAL_FRAME_GAP = 8
+local PORTAL_SCALE_MIN = 0.6
+local PORTAL_SCALE_MAX = 2.0
+local PORTAL_SCALE_STEP = 0.1
 
 -- Raider.io-style rating colour thresholds
 local RATING_COLORS = {
@@ -93,11 +95,14 @@ end
 local function GetBestDungeonMapID(member)
     local levels = member and member.dungeonLevels or {}
     local scores = member and member.dungeonScores or {}
+    local function GetMapValue(values, mapID)
+        return values[mapID] or values[tostring(mapID)]
+    end
     local bestMapID = nil
     local bestLevel = 0
     local bestScore = 0
     for mapID, level in pairs(levels) do
-        local score = tonumber(scores[mapID]) or 0
+        local score = tonumber(GetMapValue(scores, mapID)) or 0
         if level > bestLevel or (level == bestLevel and score > bestScore) then
             bestLevel = level
             bestScore = score
@@ -604,18 +609,41 @@ local function GetSeasonDungeons()
     local seen = {}
     local seenNames = {}
 
+    local function NormalizeDungeonName(name)
+        return strlower(tostring(name or "")):gsub("[^%a%d]", "")
+    end
+
+    local function ResolveCurrentMapID(mapID, name)
+        if C_ChallengeMode and C_ChallengeMode.GetMapUIInfo then
+            local apiName = C_ChallengeMode.GetMapUIInfo(mapID)
+            if apiName and NormalizeDungeonName(apiName) == NormalizeDungeonName(name) then
+                return mapID
+            end
+
+            local mapTable = C_ChallengeMode.GetMapTable and C_ChallengeMode.GetMapTable() or {}
+            for _, candidateMapID in ipairs(mapTable) do
+                local candidateName = C_ChallengeMode.GetMapUIInfo(candidateMapID)
+                if candidateName and NormalizeDungeonName(candidateName) == NormalizeDungeonName(name) then
+                    return tonumber(candidateMapID) or candidateMapID
+                end
+            end
+        end
+        return mapID
+    end
+
     -- Season data is authoritative. GetMapTable also contains legacy map IDs,
     -- which can represent the same dungeon a second time.
     local seasonData = (type(KeyParty_SeasonDungeons) == "table" and KeyParty_SeasonDungeons) or {}
     for _, entry in ipairs(seasonData) do
         local mapID = tonumber(entry.mapID)
         local entryName = tostring(entry.name or "")
-        local nameKey = strlower(entryName):gsub("[^%a%d]", "")
+        local nameKey = NormalizeDungeonName(entryName)
         if mapID and mapID > 0 and not seen[mapID] and nameKey ~= "" and not seenNames[nameKey] then
-            seen[mapID] = true
+            local currentMapID = ResolveCurrentMapID(mapID, entryName)
+            seen[currentMapID] = true
             seenNames[nameKey] = true
             result[#result + 1] = {
-                mapID = mapID,
+                mapID = currentMapID,
                 name = entryName,
             }
         end
@@ -778,35 +806,6 @@ local function BuildFrame()
     end)
 
     -- Scale buttons (- / +)
-    local scaleDownBtn = CreateFrame("Button", nil, titleBar, "UIPanelButtonTemplate")
-    scaleDownBtn:SetSize(HEADER_ICON_BUTTON_W, HEADER_ICON_BUTTON_H)
-    scaleDownBtn:SetPoint("TOPRIGHT", refreshBtn, "TOPLEFT", -HEADER_ICON_BUTTON_GAP, 0)
-    scaleDownBtn:SetText("-")
-    scaleDownBtn:SetScript("OnEnter", function(btn)
-        GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
-        GameTooltip:AddLine("Zoom out", 1, 0.82, 0)
-        GameTooltip:Show()
-    end)
-    scaleDownBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    scaleDownBtn:SetScript("OnClick", function()
-        KL_UI:SetFrameScale(KL_UI:GetFrameScale() - FRAME_SCALE_STEP)
-    end)
-
-    local scaleUpBtn = CreateFrame("Button", nil, titleBar, "UIPanelButtonTemplate")
-    scaleUpBtn:SetSize(HEADER_ICON_BUTTON_W, HEADER_ICON_BUTTON_H)
-    scaleUpBtn:SetPoint("TOPRIGHT", scaleDownBtn, "TOPLEFT", -HEADER_ICON_BUTTON_GAP, 0)
-    scaleUpBtn:SetText("+")
-    scaleUpBtn:SetScript("OnEnter", function(btn)
-        GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
-        GameTooltip:AddLine("Zoom in", 1, 0.82, 0)
-        GameTooltip:Show()
-    end)
-    scaleUpBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    scaleUpBtn:SetScript("OnClick", function()
-        KL_UI:SetFrameScale(KL_UI:GetFrameScale() + FRAME_SCALE_STEP)
-    end)
-
-
     -- ── Layout anchors ────────────────────────────────────────────────────────
     -- Section yOffsets from top of f (all negative)
     local Y_RATING_LABEL  = -(TITLE_BAR_H + 4)
@@ -1252,46 +1251,6 @@ local function BuildFrame()
     statusText:SetText("No data yet. Click Refresh.")
     f.statusText = statusText
 
-    local autoOpenCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    autoOpenCheck:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, AUTO_OPEN_OPTION_BOTTOM_OFFSET)
-    autoOpenCheck:SetScale(OPTION_CHECKBOX_SCALE)
-    autoOpenCheck:SetChecked(false)
-
-    local autoOpenLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    autoOpenLabel:SetPoint("LEFT", autoOpenCheck, "RIGHT", -1, 0)
-    autoOpenLabel:SetText("Auto open after dungeon finish")
-    autoOpenLabel:SetTextColor(0.78, 0.78, 0.82, 1)
-
-    autoOpenCheck:SetScript("OnClick", function(btn)
-        if KL_UI.OnToggleAutoOpenAtDungeonEnd then
-            KL_UI.OnToggleAutoOpenAtDungeonEnd(btn:GetChecked() == true)
-        end
-    end)
-
-    local partyAnnouncementCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    partyAnnouncementCheck:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, PARTY_CHAT_OPTION_BOTTOM_OFFSET)
-    partyAnnouncementCheck:SetScale(OPTION_CHECKBOX_SCALE)
-    partyAnnouncementCheck:SetChecked(false)
-
-    local partyAnnouncementLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    partyAnnouncementLabel:SetPoint("TOPLEFT", partyAnnouncementCheck, "TOPRIGHT", -1, -1)
-    partyAnnouncementLabel:SetWidth(FRAME_W - 56)
-    partyAnnouncementLabel:SetJustifyH("LEFT")
-    partyAnnouncementLabel:SetJustifyV("TOP")
-    partyAnnouncementLabel:SetText("Party chat announcement Best Progression Key after dungeon finish")
-    partyAnnouncementLabel:SetTextColor(0.78, 0.78, 0.82, 1)
-
-    partyAnnouncementCheck:SetScript("OnClick", function(btn)
-        if KL_UI.OnTogglePartyChatAnnouncementAtDungeonEnd then
-            KL_UI.OnTogglePartyChatAnnouncementAtDungeonEnd(btn:GetChecked() == true)
-        end
-    end)
-
-    f.autoOpenAtDungeonEndCheck = autoOpenCheck
-    f.autoOpenAtDungeonEndLabel = autoOpenLabel
-    f.partyChatAnnouncementAtDungeonEndCheck = partyAnnouncementCheck
-    f.partyChatAnnouncementAtDungeonEndLabel = partyAnnouncementLabel
-
     -- Bottom-right resize grip: drag horizontally to scale the whole frame.
     local resizeGrip = CreateFrame("Button", nil, f)
     resizeGrip:SetSize(18, 18)
@@ -1358,11 +1317,292 @@ end
 local mainFrame = BuildFrame()
 KL_UI.frame = mainFrame
 
+local function ClampPortalScale(scale)
+    local n = tonumber(scale) or 1.0
+    n = math.max(PORTAL_SCALE_MIN, math.min(PORTAL_SCALE_MAX, n))
+    return math.floor(n * 10 + 0.5) / 10
+end
+
+local function BuildPortalFrame(anchorFrame)
+    local frame = CreateFrame("Frame", "KeyPartyPortalFrame", UIParent)
+    frame:SetSize(PORTAL_BUTTON_SIZE, PORTAL_BUTTON_SIZE)
+    frame:SetPoint("TOP", UIParent, "TOP", FRAME_W / 2 + PORTAL_FRAME_GAP + PORTAL_BUTTON_SIZE / 2, -200)
+    frame:SetFrameStrata("DIALOG")
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:EnableMouseWheel(true)
+    frame:SetClampedToScreen(true)
+    frame:SetScale(1.0)
+
+    local savedPosition = type(KeyPartyDB) == "table" and KeyPartyDB.portalBarPosition or nil
+    if type(savedPosition) == "table"
+        and type(savedPosition.point) == "string"
+        and type(savedPosition.relativePoint) == "string" then
+        local savedPoint = savedPosition.point
+        local savedRelativePoint = savedPosition.relativePoint
+        local savedX = tonumber(savedPosition.x) or 0
+        local savedY = tonumber(savedPosition.y) or 0
+        if savedPoint == "CENTER" and savedRelativePoint == "CENTER" then
+            savedPoint = "TOP"
+            savedRelativePoint = "TOP"
+            savedY = savedY + (PORTAL_BUTTON_SIZE / 2)
+        end
+        frame:ClearAllPoints()
+        frame:SetPoint(
+            savedPoint,
+            UIParent,
+            savedRelativePoint,
+            savedX,
+            savedY
+        )
+    end
+
+    local function SavePortalPosition(container)
+        local point, _, relativePoint, x, y = container:GetPoint(1)
+        if type(KeyPartyDB) ~= "table" or not point or not relativePoint then
+            return
+        end
+
+        KeyPartyDB.portalBarPosition = {
+            point = point,
+            relativePoint = relativePoint,
+            x = tonumber(x) or 0,
+            y = tonumber(y) or 0,
+        }
+    end
+
+    frame:SetScript("OnDragStart", function(container)
+        if not InCombatLockdown() then
+            container:StartMoving()
+        end
+    end)
+    frame:SetScript("OnDragStop", function(container)
+        container:StopMovingOrSizing()
+        SavePortalPosition(container)
+    end)
+    frame:SetScript("OnMouseWheel", function(container, delta)
+        local scale = container:GetScale() + (delta > 0 and PORTAL_SCALE_STEP or -PORTAL_SCALE_STEP)
+        KL_UI:SetPortalBarScale(scale)
+    end)
+    frame.buttons = {}
+    frame:Show()
+
+    local function ShouldHidePortalBar()
+        local db = type(KeyPartyDB) == "table" and KeyPartyDB or nil
+        if db and db.portalBarHideAlways == true then
+            return true
+        end
+
+        if db and db.portalBarHideInRaid == true and IsInRaid() then
+            return true
+        end
+
+        if db and db.portalBarHideInPvP == true then
+            local inInstance, instanceType = IsInInstance()
+            if inInstance and (instanceType == "pvp" or instanceType == "arena") then
+                return true
+            end
+        end
+
+        if db and db.portalBarHideInSolo == true then
+            local isGrouped = IsInGroup() or IsInRaid() or IsInGroup(LE_PARTY_CATEGORY_INSTANCE)
+            if not isGrouped then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    function frame:Refresh()
+        if ShouldHidePortalBar() then
+            self:Hide()
+            return
+        end
+
+        local sourceSlots = KL_UI.frame and KL_UI.frame._keySlots or {}
+        local availableKeys = {}
+        for i = 1, PARTY_KEYSTONE_ICON_COUNT do
+            local source = sourceSlots[i]
+            if source and source:IsShown() and source.mapName then
+                availableKeys[#availableKeys + 1] = source
+            end
+        end
+
+        local playerName = CanonicalName(GetUnitName("player", true) or UnitName("player"))
+        table.sort(availableKeys, function(left, right)
+            local leftIsPlayer = CanonicalName(left.ownerName) == playerName
+            local rightIsPlayer = CanonicalName(right.ownerName) == playerName
+            if leftIsPlayer ~= rightIsPlayer then
+                return leftIsPlayer
+            end
+            return tostring(left.ownerName or "") < tostring(right.ownerName or "")
+        end)
+
+        local isHorizontal = type(KeyPartyDB) == "table" and KeyPartyDB.portalBarHorizontal == true
+        local growUp = type(KeyPartyDB) == "table" and KeyPartyDB.portalBarGrowUp == true
+        local growLeft = type(KeyPartyDB) == "table" and KeyPartyDB.portalBarGrowLeft == true
+
+        -- Keep the container at one-button size so the anchor position of the
+        -- first (local player) button never shifts while the bar grows.
+        self:SetSize(PORTAL_BUTTON_SIZE, PORTAL_BUTTON_SIZE)
+
+        for i, source in ipairs(availableKeys) do
+            local button = self.buttons[i]
+            if not button then
+                button = CreateFrame("Button", nil, self, "SecureActionButtonTemplate")
+                button:SetSize(PORTAL_BUTTON_SIZE, PORTAL_BUTTON_SIZE)
+                button:RegisterForClicks("LeftButtonUp")
+                button:RegisterForDrag("RightButton")
+                button:EnableMouse(true)
+                button:EnableMouseWheel(true)
+                button:SetScript("OnDragStart", function(btn)
+                    if not InCombatLockdown() then
+                        btn:GetParent():StartMoving()
+                    end
+                end)
+                button:SetScript("OnDragStop", function(btn)
+                    local container = btn:GetParent()
+                    container:StopMovingOrSizing()
+                    SavePortalPosition(container)
+                end)
+                button:SetScript("OnMouseWheel", function(btn, delta)
+                    local container = btn:GetParent()
+                    local scale = container:GetScale() + (delta > 0 and PORTAL_SCALE_STEP or -PORTAL_SCALE_STEP)
+                    KL_UI:SetPortalBarScale(scale)
+                end)
+
+                local icon = button:CreateTexture(nil, "ARTWORK")
+                icon:SetAllPoints(button)
+                icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                button.icon = icon
+                button.border = CreateIconEdgeBorder(button, icon)
+
+                local cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+                cooldown:SetAllPoints(icon)
+                cooldown:SetFrameLevel(button:GetFrameLevel() + 30)
+                cooldown:SetDrawSwipe(true)
+                cooldown:SetDrawEdge(true)
+                cooldown:Hide()
+                button.cooldown = cooldown
+
+                local label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                label:SetPoint("TOP", button, "TOP", 0, -2)
+                label:SetTextColor(1, 1, 1, 1)
+                button.label = label
+
+                local levelText = button:CreateFontString(nil, "OVERLAY")
+                levelText:SetPoint("CENTER", button, "CENTER", 0, 0)
+                levelText:SetFont(select(1, GameFontNormal:GetFont()) or "Fonts\\FRIZQT__.TTF", 22, "OUTLINE")
+                levelText:SetTextColor(1, 1, 1, 1)
+                button.levelText = levelText
+
+                local ownerText = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                ownerText:SetPoint("BOTTOM", button, "BOTTOM", 0, 2)
+                ownerText:SetWidth(PORTAL_BUTTON_SIZE - 4)
+                ownerText:SetJustifyH("CENTER")
+                ownerText:SetTextColor(0.92, 0.92, 0.95, 1)
+                button.ownerText = ownerText
+
+                button:SetScript("OnEnter", function(btn)
+                    GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+                    GameTooltip:AddLine(btn.mapName or "Dungeon portal", 1, 0.82, 0)
+                    if btn.ownerName then
+                        GameTooltip:AddLine(string.format("%s: +%s", btn.ownerName, tostring(btn.keyLevel or "?")), 0.92, 0.92, 0.95)
+                    end
+                    GameTooltip:AddLine("Right-drag to move, mouse wheel to scale", 0.65, 0.65, 0.70)
+                    if btn.teleportSpellID then
+                        GameTooltip:AddLine("Click to teleport", 0.2, 1, 0.2)
+                        GameTooltip:AddLine(btn.portalSpellName or "Known teleport spell", 0.8, 0.8, 1)
+                    else
+                        GameTooltip:AddLine("No teleport available", 1, 0.2, 0.2)
+                    end
+                    GameTooltip:Show()
+                end)
+                button:SetScript("OnLeave", function()
+                    GameTooltip:Hide()
+                end)
+
+                self.buttons[i] = button
+            end
+
+            button:ClearAllPoints()
+            local offset = (i - 1) * (PORTAL_BUTTON_SIZE + PORTAL_BUTTON_GAP)
+            if isHorizontal then
+                if growLeft then
+                    button:SetPoint("LEFT", self, "LEFT", -offset, 0)
+                else
+                    button:SetPoint("LEFT", self, "LEFT", offset, 0)
+                end
+            else
+                if growUp then
+                    button:SetPoint("TOP", self, "TOP", 0, offset)
+                else
+                    button:SetPoint("TOP", self, "TOP", 0, -offset)
+                end
+            end
+            button.mapID = source.mapID
+            button.mapName = source.mapName
+            button.ownerName = source.ownerName
+            button.keyLevel = source.keyLevel
+            button.portalSpellName = source.portalSpellName
+            button.teleportSpellID = source.teleportSpellID
+            button.icon:SetTexture(source.mapID and GetMapIcon(source.mapID, source.mapName) or EMPTY_ICON_TEXTURE)
+            button.label:SetText(AbbreviateDungeonName(source.mapName))
+            button.levelText:SetText(source.keyLevel and ("+" .. tostring(source.keyLevel)) or "")
+            button.ownerText:SetText(EllipsizeTextToWidth(button.ownerText, source.ownerName or "", PORTAL_BUTTON_SIZE - 4))
+            local spellID = source.teleportSpellID
+            button.border:SetColor(spellID and 0.20 or 1.00, spellID and 1.00 or 0.20, 0.20, 0.95)
+
+            if not InCombatLockdown() then
+                if spellID then
+                    button:SetAttribute("type", "spell")
+                    button:SetAttribute("spell", button.portalSpellName or spellID)
+                else
+                    button:SetAttribute("type", nil)
+                    button:SetAttribute("spell", nil)
+                end
+            end
+            button:Show()
+        end
+
+        for i = #availableKeys + 1, #self.buttons do
+            self.buttons[i]:Hide()
+        end
+
+        self:Show()
+        self:Raise()
+    end
+
+    return frame
+end
+
+KL_UI.portalFrame = BuildPortalFrame()
+KL_UI.portalFrame:Refresh()
+
 function KL_UI:GetFrameScale()
     if type(KeyPartyDB) == "table" and type(KeyPartyDB.frameScale) == "number" then
         return KeyPartyDB.frameScale
     end
     return FRAME_SCALE_DEFAULT
+end
+
+function KL_UI:GetPortalBarScale()
+    if type(KeyPartyDB) == "table" and type(KeyPartyDB.portalBarScale) == "number" then
+        return ClampPortalScale(KeyPartyDB.portalBarScale)
+    end
+    return 1.0
+end
+
+function KL_UI:SetPortalBarScale(scale)
+    local normalized = ClampPortalScale(scale)
+    if type(KeyPartyDB) == "table" then
+        KeyPartyDB.portalBarScale = normalized
+    end
+    if self.portalFrame then
+        self.portalFrame:SetScale(normalized)
+    end
 end
 
 function KL_UI:SetFrameScale(scale)
@@ -1380,6 +1620,9 @@ end
 C_Timer.After(0, function()
     if KL_UI.frame then
         KL_UI.frame:SetScale(KL_UI:GetFrameScale())
+    end
+    if KL_UI.portalFrame then
+        KL_UI.portalFrame:SetScale(KL_UI:GetPortalBarScale())
     end
 end)
 
@@ -1424,6 +1667,17 @@ function KL_UI:RefreshCooldownIndicators()
         teleportSpellIDs[#teleportSpellIDs + 1] = f.bestKeyTeleportSpellID
     end
 
+    local portalFrame = self.portalFrame
+    if portalFrame and portalFrame.buttons then
+        for _, button in ipairs(portalFrame.buttons) do
+            local spellID = button and button.teleportSpellID
+            if spellID and not seenSpellIDs[spellID] then
+                seenSpellIDs[spellID] = true
+                teleportSpellIDs[#teleportSpellIDs + 1] = spellID
+            end
+        end
+    end
+
     local sharedCooldown = nil
     if not debugEndTime then
         sharedCooldown = GetSharedTeleportCooldown(teleportSpellIDs)
@@ -1457,6 +1711,17 @@ function KL_UI:RefreshCooldownIndicators()
     else
         ApplySpellCooldown(f.bestKeyCooldown, f.bestKeyTeleportSpellID, debugEndTime, debugDuration)
     end
+
+    if portalFrame and portalFrame.buttons then
+        for _, button in ipairs(portalFrame.buttons) do
+            if sharedCooldown and button.teleportSpellID then
+                button.cooldown:Show()
+                button.cooldown:SetCooldown(sharedCooldown.startTime, sharedCooldown.duration, sharedCooldown.modRate)
+            else
+                ApplySpellCooldown(button.cooldown, button.teleportSpellID, debugEndTime, debugDuration)
+            end
+        end
+    end
 end
 
 function KL_UI:SetDebugCooldown(seconds)
@@ -1479,7 +1744,7 @@ function KL_UI:StartCooldownTicker()
     end
 
     self._cooldownTicker = C_Timer.NewTicker(0.15, function()
-        if self.frame and self.frame:IsShown() then
+        if (self.frame and self.frame:IsShown()) or (self.portalFrame and self.portalFrame:IsShown()) then
             self:RefreshCooldownIndicators()
         end
     end)
@@ -1493,6 +1758,7 @@ function KL_UI:StopCooldownTicker()
 end
 
 mainFrame:SetScript("OnShow", function()
+    KL_UI.portalFrame:Refresh()
     KL_UI:StartCooldownTicker()
     KL_UI:RefreshCooldownIndicators()
     if KL_UI.ShouldRefreshOnShow and KL_UI.ShouldRefreshOnShow() and KL_UI.OnRefreshOnShow then
@@ -1501,7 +1767,18 @@ mainFrame:SetScript("OnShow", function()
 end)
 
 mainFrame:SetScript("OnHide", function()
-    KL_UI:StopCooldownTicker()
+end)
+
+KL_UI:StartCooldownTicker()
+
+local portalVisibilityEvents = CreateFrame("Frame")
+portalVisibilityEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+portalVisibilityEvents:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+portalVisibilityEvents:RegisterEvent("GROUP_ROSTER_UPDATE")
+portalVisibilityEvents:SetScript("OnEvent", function()
+    if KL_UI and KL_UI.portalFrame and KL_UI.portalFrame.Refresh then
+        KL_UI.portalFrame:Refresh()
+    end
 end)
 
 local cooldownEvents = CreateFrame("Frame")
@@ -1510,17 +1787,40 @@ cooldownEvents:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
 cooldownEvents:RegisterEvent("SPELLS_CHANGED")
 cooldownEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
 cooldownEvents:SetScript("OnEvent", function()
-    if KL_UI and KL_UI.frame and KL_UI.frame:IsShown() then
+    if KL_UI and ((KL_UI.frame and KL_UI.frame:IsShown()) or (KL_UI.portalFrame and KL_UI.portalFrame:IsShown())) then
         KL_UI:RefreshCooldownIndicators()
     end
 end)
 
 -- ── Public: populate the frame with current data ──────────────────────────────
 
-function KL_UI:Populate(members, best)
+function KL_UI:Populate(members, best, keepFrameHidden)
     local f    = self.frame
     local rows = f._ratingRows
     local keySlots = f._keySlots
+
+    members = members or {}
+    if IsInRaid() then
+        local playerName = CanonicalName(GetUnitName("player", true) or UnitName("player"))
+        local playerMember = members[playerName]
+        if not playerMember then
+            for name, data in pairs(members) do
+                if CanonicalName(name) == playerName then
+                    playerMember = data
+                    break
+                end
+            end
+        end
+
+        members = {}
+        if playerMember then
+            members[playerName] = playerMember
+        end
+
+        if best and (not best.owner or CanonicalName(best.owner) ~= playerName) then
+            best = nil
+        end
+    end
 
     -- Hide all pre-created rows
     for i = 1, MAX_ROWS do
@@ -1532,6 +1832,7 @@ function KL_UI:Populate(members, best)
     for i = 1, PARTY_KEYSTONE_ICON_COUNT do
         local slot = keySlots[i]
         slot.mapName = nil
+        slot.mapID = nil
         slot.ownerName = nil
         slot.keyLevel = nil
         slot.portalSpellName = nil
@@ -1592,8 +1893,7 @@ function KL_UI:Populate(members, best)
         -- Best completed dungeon column
         local bestMapID = GetBestDungeonMapID(m)
         if bestMapID then
-            local dungeonName = C_ChallengeMode and C_ChallengeMode.GetMapUIInfo and
-                                C_ChallengeMode.GetMapUIInfo(bestMapID) or nil
+            local dungeonName = GetMapName(bestMapID)
             local level  = ((m.dungeonLevels or {})[bestMapID] or 0)
             local isTimed = (m.dungeonTimed or {})[bestMapID]
             rows[i].bestAbbr:SetText(AbbreviateDungeonName(dungeonName or ""))
@@ -1656,6 +1956,7 @@ function KL_UI:Populate(members, best)
             slot.icon:SetTexture(GetMapIcon(info.mapID, mapName))
             slot.levelText:SetText("+" .. tostring(info.level))
             slot.mapName = mapName
+            slot.mapID = info.mapID
             slot.ownerName = CanonicalName(info.owner)
             slot.keyLevel = info.level
             slot.portalSpellName = spellName
@@ -1746,10 +2047,13 @@ function KL_UI:Populate(members, best)
     local playerMember = FindPlayerMember()
     local playerScores = (playerMember and playerMember.dungeonScores) or {}
     local playerLevels = (playerMember and playerMember.dungeonLevels) or {}
+    local function GetPlayerMapValue(values, mapID)
+        return values[mapID] or values[tostring(mapID)] or 0
+    end
     local dungeons = GetDisplayedSeasonDungeons()
     table.sort(dungeons, function(a, b)
-        local sa = tonumber(playerScores[a.mapID]) or 0
-        local sb = tonumber(playerScores[b.mapID]) or 0
+        local sa = tonumber(GetPlayerMapValue(playerScores, a.mapID)) or 0
+        local sb = tonumber(GetPlayerMapValue(playerScores, b.mapID)) or 0
         if sa ~= sb then return sa < sb end
         return strlower(a.name or "") < strlower(b.name or "")
     end)
@@ -1759,7 +2063,7 @@ function KL_UI:Populate(members, best)
         local dungeon = dungeons[i]
 
         if dungeon then
-            local score = tonumber(playerScores[dungeon.mapID]) or 0
+            local score = tonumber(GetPlayerMapValue(playerScores, dungeon.mapID)) or 0
             local spellID = addonTable and addonTable.GetTeleportSpellIDForMap and addonTable.GetTeleportSpellIDForMap(dungeon.mapID)
             if not spellID and addonTable and addonTable.GetTeleportSpellIDForMapName then
                 spellID = addonTable.GetTeleportSpellIDForMapName(dungeon.name)
@@ -1791,7 +2095,7 @@ function KL_UI:Populate(members, best)
                 end
             end
 
-            local level = tonumber(playerLevels[dungeon.mapID]) or 0
+            local level = tonumber(GetPlayerMapValue(playerLevels, dungeon.mapID)) or 0
             slot.icon:SetTexture(GetMapIcon(dungeon.mapID, dungeon.name))
             ApplyIconScoreText(slot, score)
             slot.abbrText:SetText(AbbreviateDungeonName(dungeon.name))
@@ -1806,6 +2110,7 @@ function KL_UI:Populate(members, best)
             end
         else
             slot.mapName = nil
+            slot.mapID = nil
             slot.portalSpellName = nil
             slot.teleportSpellID = nil
             ClearCooldownFrame(slot.cooldown)
@@ -1899,10 +2204,15 @@ function KL_UI:Populate(members, best)
         f.statusText:SetText(string.format("v%s  |  Last refresh: %s", tostring(version or "?"), date("%H:%M:%S")))
     end
 
+    if self.portalFrame then
+        self.portalFrame:Refresh()
+    end
     self:RefreshCooldownIndicators()
 
-    f:Show()
-    f:Raise()
+    if not keepFrameHidden then
+        f:Show()
+        f:Raise()
+    end
 end
 
 function KL_UI:Toggle()
@@ -1910,18 +2220,6 @@ function KL_UI:Toggle()
         self.frame:Hide()
     else
         self.frame:Show()
-    end
-end
-
-function KL_UI:SetAutoOpenAtDungeonEndChecked(enabled)
-    if self.frame and self.frame.autoOpenAtDungeonEndCheck then
-        self.frame.autoOpenAtDungeonEndCheck:SetChecked(enabled and true or false)
-    end
-end
-
-function KL_UI:SetPartyChatAnnouncementAtDungeonEndChecked(enabled)
-    if self.frame and self.frame.partyChatAnnouncementAtDungeonEndCheck then
-        self.frame.partyChatAnnouncementAtDungeonEndCheck:SetChecked(enabled and true or false)
     end
 end
 
